@@ -526,15 +526,24 @@ let liveKind = null;
 let liveTimer = null, weather = null, weatherAt = 0;
 const WMO = code => code === 0 ? 'sun' : code <= 3 ? 'cloud' : code <= 48 ? 'fog' : code <= 67 || (code >= 80 && code <= 82) ? 'rain' : code <= 77 || code === 85 || code === 86 ? 'snow' : 'storm';
 function drawIcon(c, kind, x, y) {
-  const px = (col, pts) => { c.fillStyle = col; pts.forEach(([a, b, w = 1, h = 1]) => c.fillRect(x + a, y + b, w, h)); };
-  if (kind === 'sun') { px('#ffd400', [[5, 3, 6, 10], [3, 5, 10, 6], [4, 4, 8, 8]]); px('#ffb000', [[7, 0, 2, 2], [7, 14, 2, 2], [0, 7, 2, 2], [14, 7, 2, 2], [2, 2], [13, 2], [2, 13], [13, 13]]); }
-  else {
-    px('#cfd6e4', [[3, 5, 8, 4], [1, 7, 14, 4], [9, 4, 4, 3]]);
-    if (kind === 'rain') px('#00c2ff', [[3, 12, 1, 2], [7, 13, 1, 2], [11, 12, 1, 2]]);
-    if (kind === 'snow') px('#ffffff', [[3, 13], [7, 14], [11, 13]]);
-    if (kind === 'storm') px('#ffd400', [[7, 11, 2, 1], [6, 12, 2, 1], [7, 13, 1, 2]]);
-    if (kind === 'fog') px('#8a93a6', [[1, 12, 14, 1], [3, 14, 10, 1]]);
+  // 20x18 weather icons, shaded with litDisc so they read as little 3D objects
+  const cloud = (ox, oy, base) => {
+    litDisc(c, x + ox + 6, y + oy + 8, 5, base); litDisc(c, x + ox + 12, y + oy + 6, 6, base);
+    litDisc(c, x + ox + 16, y + oy + 9, 4, base); litOval(c, x + ox + 11, y + oy + 11, 8, 2, base);
+  };
+  if (kind === 'sun') {
+    c.fillStyle = '#FFB000';
+    [[10, 0], [10, 17], [1, 9], [19, 9], [4, 3], [16, 3], [4, 15], [16, 15]].forEach(([a, b]) => c.fillRect(x + a - 1, y + b - 1, 2, 2));
+    litDisc(c, x + 10, y + 9, 6, '#FFC83D', { light: .6 });
+    return;
   }
+  if (kind === 'cloud') { litDisc(c, x + 6, y + 5, 4, '#FFC83D'); cloud(0, 2, '#E4E9F5'); return; }
+  cloud(0, 0, kind === 'storm' ? '#9AA3B8' : '#D5DCEB');
+  const drops = [[5, 15], [10, 17], [15, 15]];
+  if (kind === 'rain') drops.forEach(([a, b]) => { c.fillStyle = '#4FB3FF'; c.fillRect(x + a, y + b, 1, 2); c.fillStyle = '#B5E2FF'; c.fillRect(x + a, y + b, 1, 1); });
+  if (kind === 'snow') drops.forEach(([a, b]) => { c.fillStyle = '#FFFFFF'; c.fillRect(x + a - 1, y + b, 3, 1); c.fillRect(x + a, y + b - 1, 1, 3); });
+  if (kind === 'storm') { c.fillStyle = '#FFD36B'; [[11, 13, 3], [10, 14, 3], [9, 15, 3], [11, 16, 2], [10, 17, 2]].forEach(([a, b, w]) => c.fillRect(x + a, y + b, w, 1)); }
+  if (kind === 'fog') { c.fillStyle = '#8A93A6'; c.fillRect(x + 1, y + 15, 18, 1); c.fillRect(x + 4, y + 17, 13, 1); }
 }
 async function getWeather() {
   const lat = $('lat').value.trim(), lon = $('lon').value.trim();
@@ -545,23 +554,44 @@ async function getWeather() {
   weather = { t: Math.round(j.current.temperature_2m), h: j.current.relative_humidity_2m, kind: WMO(j.current.weather_code), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]) };
   weatherAt = Date.now(); return weather;
 }
+function skyBackground(c, now) {
+  // the background follows the time of day: deep night, dawn, daytime blue, sunset
+  const h = now.getHours() + now.getMinutes() / 60;
+  const sky = h < 6 || h >= 21 ? ['#070B24', '#1A0F33'] : h < 8 ? ['#2B2160', '#B0507A'] : h < 18 ? ['#0E3A7A', '#2C6FB8'] : ['#2A1B5C', '#C25A4A'];
+  const g = c.createLinearGradient(0, 0, 0, S); g.addColorStop(0, sky[0]); g.addColorStop(1, sky[1]);
+  c.fillStyle = g; c.fillRect(0, 0, S, S);
+  if (h < 6 || h >= 21) { c.fillStyle = '#C9D2FF'; [[5, 4], [58, 7], [12, 30], [52, 28], [33, 2], [3, 58], [60, 55]].forEach(([x, y]) => c.fillRect(x, y, 1, 1)); }
+}
 async function infoFrame(withWeather) {
   const c = new OffscreenCanvas(S, S).getContext('2d'), now = new Date();
-  const g = c.createLinearGradient(0, 0, 0, S); g.addColorStop(0, '#0b1030'); g.addColorStop(1, '#1d0b2e');
-  c.fillStyle = g; c.fillRect(0, 0, S, S);
+  skyBackground(c, now);
   const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const top = withWeather ? 4 : 16;
-  text(c, hhmm, Math.round((S - textWidth(hhmm, 3)) / 2), top, '#ffffff', 3);
-  const date = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  text(c, date, Math.round((S - textWidth(date)) / 2), top + 19, '#9aa1b2');
-  if (withWeather) {
-    let w = null; try { w = await getWeather(); } catch {}
-    if (w) {
-      drawIcon(c, w.kind, 4, 38);
-      text(c, `${w.t}°`, 24, 37, '#ffd400', 2);
-      text(c, `${w.lo}-${w.hi}°`, 24, 50, '#00c2ff');
-      text(c, `${w.h}%`, 24, 57, '#9aa1b2');
-    } else { const m = $('lat').value.trim() ? 'NO WEATHER' : 'SET LAT'; text(c, m, Math.round((S - textWidth(m)) / 2), 44, '#ff6b6b'); }
+  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const date = `${days[now.getDay()]} ${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const timeStyle = { big: true, scale: 2, top: '#FFFFFF', bottom: '#FFC94A', align: 'center' };
+  if (!withWeather) {
+    fancyText(c, hhmm, 32, 16, timeStyle);
+    fancyText(c, date, 32, 39, { big: false, top: '#BFE6FF', bottom: '#7FB8FF', align: 'center' });
+    return c.getImageData(0, 0, S, S);
+  }
+  fancyText(c, hhmm, 32, 3, timeStyle);
+  fancyText(c, date, 32, 21, { big: false, top: '#BFE6FF', bottom: '#7FB8FF', align: 'center' });
+  c.fillStyle = 'rgba(255,255,255,.18)'; c.fillRect(6, 29, 52, 1);
+  let w = null; try { w = await getWeather(); } catch {}
+  if (w) {
+    drawIcon(c, w.kind, 3, 33);
+    const warm = w.t >= 25 ? ['#FFE29A', '#FF7A3D'] : w.t <= 5 ? ['#E6F6FF', '#5FB4FF'] : ['#FFFFFF', '#7CF0C5'];
+    fancyText(c, `${w.t}°`, 44, 33, { big: true, scale: 2, top: warm[0], bottom: warm[1], align: 'center' });
+    // today's low and high, centred under the temperature: blue low, orange high
+    const lo = `${w.lo}°`, hi = `${w.hi}°`, sep = 5;
+    const lw = fancyWidth(lo, { big: false }), hw = fancyWidth(hi, { big: false });
+    const x0 = 44 - Math.round((lw + sep + hw) / 2);
+    fancyText(c, lo, x0, 55, { big: false, top: '#BFE6FF', bottom: '#5FB4FF' });
+    c.fillStyle = 'rgba(255,255,255,.6)'; c.fillRect(x0 + lw + 2, 57, 1, 1);
+    fancyText(c, hi, x0 + lw + sep, 55, { big: false, top: '#FFE29A', bottom: '#FF9A3D' });
+  } else {
+    const m = $('lat').value.trim() ? 'NO WEATHER' : 'SET LOCATION';
+    fancyText(c, m, 32, 42, { big: false, top: '#FFB3B3', bottom: '#FF6B6B', align: 'center' });
   }
   return c.getImageData(0, 0, S, S);
 }
