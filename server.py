@@ -100,6 +100,17 @@ class Handler(SimpleHTTPRequestHandler):
             super().log_message(fmt, *args)
 
 
+def lan_ip():
+    """Best guess at this machine's address on the home network, for the startup message."""
+    import socket
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.168.0.1", 9))  # no packet is sent; this just picks the outgoing interface
+            return s.getsockname()[0]
+    except OSError:
+        return "<this-server-ip>"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--pixoo", default="192.168.4.192", help="Pixoo IP address")
@@ -111,8 +122,17 @@ def main():
     except ConnectionError as e:
         print(f"Warning: {e}. Will retry when the page sends something.")
     web = Path(__file__).resolve().parent / "web"
-    server = ThreadingHTTPServer(("0.0.0.0", args.port), partial(Handler, directory=str(web)))
-    print(f"Pixoo Studio running: open http://<this-server-ip>:{args.port} on any device on your wifi")
+    handler = partial(Handler, directory=str(web))
+    # If the port is taken (8080 often is), try the next ones instead of failing.
+    for port in range(args.port, args.port + 20):
+        try:
+            server = ThreadingHTTPServer(("0.0.0.0", port), handler)
+            break
+        except OSError:
+            print(f"Port {port} is in use, trying {port + 1}")
+    else:
+        raise SystemExit(f"No free port between {args.port} and {args.port + 19}. Pick one with --port.")
+    print(f"Pixoo Studio running: open http://{lan_ip()}:{port} on any device on your wifi")
     server.serve_forever()
 
 
