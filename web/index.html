@@ -1,0 +1,581 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixoo Studio</title>
+<style>
+  :root {
+    --bg: #111318; --panel: #1b1e26; --line: #2c313d; --text: #e8eaf0; --muted: #9aa1b2;
+    --accent: #7c5cff; --ok: #3ccf8e; --err: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 18px; margin: 0 auto 0 0; }
+  main { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 16px; padding: 16px; max-width: 1100px; margin: 0 auto; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  #screen { width: 100%; aspect-ratio: 1; image-rendering: pixelated; background: #000; border-radius: 6px; display: block; touch-action: none; }
+  button, select, input { font: inherit; color: var(--text); background: #252a35; border: 1px solid var(--line); border-radius: 8px; padding: 7px 11px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.on { outline: 2px solid var(--accent); }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .tab { display: none; } .tab.active { display: block; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .grid button { padding: 12px 8px; }
+  label { color: var(--muted); font-size: 13px; }
+  #status { font-size: 13px; color: var(--muted); }
+  #status.ok { color: var(--ok); } #status.err { color: var(--err); }
+  .palette { display: flex; flex-wrap: wrap; gap: 4px; }
+  .palette span { width: 24px; height: 24px; border-radius: 4px; cursor: pointer; border: 2px solid transparent; }
+  .palette span.sel { border-color: #fff; }
+  p.hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  #progress { width: 100%; height: 6px; margin-top: 10px; accent-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pixoo Studio</h1>
+  <label>Pixoo IP <input id="ip" size="13" value="192.168.4.192"></label>
+  <label>API <select id="api">
+    <option value="auto">Auto-detect</option>
+    <option value="server">Via home server (/api)</option>
+    <option value=":80/post">Original (port 80, /post)</option>
+    <option value=":9000/divoom_api">Newer (port 9000, /divoom_api)</option>
+  </select></label>
+  <label>Brightness <input id="bright" type="range" min="0" max="100" value="80"></label>
+  <button id="test">Test connection</button>
+  <span id="status">Not connected yet</span>
+</header>
+
+<main>
+  <section class="panel">
+    <canvas id="screen" width="64" height="64"></canvas>
+    <progress id="progress" max="1" value="0"></progress>
+    <div class="row">
+      <button class="primary" id="send">Send to Pixoo</button>
+      <label>Frames <input id="frames" type="number" min="1" max="40" value="40" style="width:64px"></label>
+      <label>Speed ms <input id="speed" type="number" min="20" max="1000" value="80" style="width:72px"></label>
+    </div>
+    <p class="hint">The preview loops exactly what will be sent. The Pixoo holds up to 40 frames per animation.</p>
+  </section>
+
+  <section class="panel">
+    <div class="tabs">
+      <button data-tab="effects" class="on">Effects</button>
+      <button data-tab="draw">Draw</button>
+      <button data-tab="info">Info displays</button>
+      <button data-tab="play">Play</button>
+    </div>
+
+    <div class="tab active" id="tab-effects">
+      <div class="grid" id="effects"></div>
+      <p class="hint">Pick an effect to preview it, then press Send to Pixoo.</p>
+    </div>
+
+    <div class="tab" id="tab-draw">
+      <div class="palette" id="palette"></div>
+      <div class="row">
+        <input type="color" id="color" value="#ff3366">
+        <button id="eraser">Eraser</button>
+        <button id="fill">Fill</button>
+        <button id="clear">Clear</button>
+      </div>
+      <div class="row">
+        <button id="prevFrame">◀</button>
+        <span id="frameLabel">Frame 1 / 1</span>
+        <button id="nextFrame">▶</button>
+        <button id="addFrame">+ Frame (copy)</button>
+        <button id="delFrame">Delete frame</button>
+        <button id="playDraw">Play</button>
+      </div>
+      <p class="hint">Draw on the preview with mouse or finger. Add frames to make your own animation.</p>
+    </div>
+
+    <div class="tab" id="tab-info">
+      <div class="grid">
+        <button id="clockBtn">Clock</button>
+        <button id="weatherBtn">Clock + weather</button>
+        <button id="stopLive">Stop live update</button>
+      </div>
+      <div class="row">
+        <label>Latitude <input id="lat" size="8" placeholder="auto"></label>
+        <label>Longitude <input id="lon" size="8" placeholder="auto"></label>
+        <button id="locate">Use my location</button>
+      </div>
+      <p class="hint">Info displays update the Pixoo every minute while this page stays open. Weather comes from Open-Meteo (free, no key).</p>
+    </div>
+
+    <div class="tab" id="tab-play">
+      <div class="row">
+        <button id="snakeBtn" class="primary">Start snake</button>
+        <label><input type="checkbox" id="mirror" checked> Mirror on the Pixoo</label>
+        <span id="fps" style="color:var(--muted);font-size:13px"></span>
+      </div>
+      <p class="hint">Use the arrow keys (or swipe on the preview). Each move sends a frame to the Pixoo over wifi, and the counter shows how many frames per second it actually accepts.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+const S = 64;
+const $ = id => document.getElementById(id);
+const cv = $('screen'), ctx = cv.getContext('2d');
+const store = {
+  get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+$('ip').value = store.get('ip', $('ip').value);
+$('lat').value = store.get('lat', '');
+$('lon').value = store.get('lon', '');
+$('api').value = store.get('api', 'auto');
+$('ip').onchange = () => { store.set('ip', $('ip').value.trim()); detected = null; };
+$('api').onchange = () => { store.set('api', $('api').value); detected = null; };
+
+function status(msg, kind = '') { const el = $('status'); el.textContent = msg; el.className = kind; }
+
+// ---------- Pixoo API ----------
+// Sent as text/plain so the browser makes a "simple" request (no CORS preflight).
+// Mode no-cors lets the command reach the device even if it doesn't send CORS headers.
+// Original Pixoo 64 firmware answers on :80/post; newer units ("Pixoo-64 II") close port 80
+// and answer the same commands on :9000/divoom_api. Auto-detect tries both: a closed port
+// makes fetch fail, an open one succeeds even when the browser hides the reply.
+let detected = null;
+const host = () => $('ip').value.trim().replace(/^https?:\/\//, '').replace(/[:/].*$/, '');
+// When the page is served by server.py, commands go to its /api endpoint, which forwards
+// them to the Pixoo. This avoids phone browsers blocking direct calls to local devices.
+const served = location.protocol.startsWith('http');
+async function hasServer() {
+  if (!served) return false;
+  try { return (await fetch('api/health', { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; }
+}
+async function apiUrl() {
+  const mode = $('api').value;
+  if (mode === 'server') return 'api';
+  if (mode !== 'auto') return `http://${host()}${mode}`;
+  if (detected) return detected;
+  if (await hasServer()) { $('api').title = 'Using home server'; return detected = 'api'; }
+  for (const suffix of [':80/post', ':9000/divoom_api']) {
+    const url = `http://${host()}${suffix}`;
+    try {
+      await fetch(url, { method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ Command: 'Channel/GetIndex' }), signal: AbortSignal.timeout(3000) });
+      detected = url; $('api').title = 'Detected ' + suffix; return url;
+    } catch {}
+  }
+  throw new Error('no answer on port 80 or 9000');
+}
+const pause = ms => new Promise(r => setTimeout(r, ms));
+async function pixoo(cmd, params = {}) {
+  const url = await apiUrl();
+  const r = await fetch(url, {
+    method: 'POST', mode: url === 'api' ? 'same-origin' : 'no-cors', headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ Command: cmd, ...params }),
+  });
+  if (url === 'api' && !r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'server error ' + r.status);
+}
+const viaLabel = url => url === 'api' ? 'home server' : 'port ' + (new URL(url).port || 80);
+async function pixooRead(cmd, params = {}) {
+  const r = await fetch(await apiUrl(), {
+    method: 'POST', headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify({ Command: cmd, ...params }),
+  });
+  const j = await r.json();
+  const code = j.error_code ?? j.ReturnCode ?? 0;  // newer firmware replies with ReturnCode/ReturnMessage
+  if (code !== 0) throw new Error(j.ReturnMessage || 'error ' + code);
+  return j;
+}
+function frameToB64(imgData) {
+  const d = imgData.data, rgb = new Uint8Array(S * S * 3);
+  for (let i = 0, j = 0; i < d.length; i += 4) { rgb[j++] = d[i]; rgb[j++] = d[i + 1]; rgb[j++] = d[i + 2]; }
+  let s = ''; for (let i = 0; i < rgb.length; i++) s += String.fromCharCode(rgb[i]);
+  return btoa(s);
+}
+let sending = false;
+async function sendFrames(frames, speed) {
+  if (sending) return; sending = true;
+  frames = frames.slice(0, 40);
+  try {
+    status('Sending…');
+    await pixoo('Draw/ResetHttpGifId'); // prevents the device freezing after many pushes
+    for (let i = 0; i < frames.length; i++) {
+      await pixoo('Draw/SendHttpGif', { PicNum: frames.length, PicWidth: S, PicOffset: i, PicID: 1, PicSpeed: speed, PicData: frameToB64(frames[i]) });
+      $('progress').value = (i + 1) / frames.length;
+      await pause(30); // the device's web server is single-threaded; give it a breather
+    }
+    status(`Sent ${frames.length} frame${frames.length > 1 ? 's' : ''}`, 'ok');
+  } catch (e) {
+    status('Could not reach the Pixoo: ' + e.message, 'err');
+  } finally { sending = false; }
+}
+$('test').onclick = async () => {
+  status('Testing…');
+  try {
+    const conf = await pixooRead('Channel/GetAllConf');
+    status(`Connected via ${viaLabel(await apiUrl())} · brightness ${conf.Brightness ?? '?'}`, 'ok');
+    if (conf.Brightness != null) $('bright').value = conf.Brightness;
+  } catch {
+    try { detected = null; await pixoo('Channel/GetAllConf'); status(`Reachable via ${viaLabel(await apiUrl())} (sending works)`, 'ok'); }
+    catch (e) { status('Not reachable: check the IP and that you are on the same wifi', 'err'); }
+  }
+};
+$('bright').onchange = () => pixoo('Channel/SetBrightness', { Brightness: +$('bright').value }).catch(() => status('Could not reach the Pixoo', 'err'));
+
+// ---------- tiny 3x5 pixel font ----------
+const FONT = {
+  '0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111','4':'101101111001001',
+  '5':'111100111001111','6':'111100111101111','7':'111001010010010','8':'111101111101111','9':'111101111001111',
+  ':':'000010000010000','-':'000000111000000','°':'010101010000000','%':'101001010100101',' ':'000000000000000',
+  '.':'000000000000010',
+  A:'010101111101101',B:'110101110101110',C:'011100100100011',D:'110101101101110',E:'111100110100111',F:'111100110100100',
+  G:'011100101101011',H:'101101111101101',I:'111010010010111',J:'001001001101010',K:'101101110101101',L:'100100100100111',
+  M:'101111111101101',N:'110101101101101',O:'010101101101010',P:'110101110100100',Q:'010101101110011',R:'110101110101101',
+  S:'011100010001110',T:'111010010010010',U:'101101101101111',V:'101101101101010',W:'101101111111101',X:'101101010101101',
+  Y:'101101010010010',Z:'111001010100111',
+};
+function text(c, str, x, y, color, scale = 1) {
+  c.fillStyle = color;
+  for (const ch of String(str).toUpperCase()) {
+    const g = FONT[ch] || FONT[' '];
+    for (let i = 0; i < 15; i++) if (g[i] === '1') c.fillRect(x + (i % 3) * scale, y + Math.floor(i / 3) * scale, scale, scale);
+    x += 4 * scale;
+  }
+}
+const textWidth = (str, scale = 1) => String(str).length * 4 * scale - scale;
+
+// ---------- effects ----------
+function pixelEffect(fn) {
+  return (t, n) => {
+    const img = new ImageData(S, S);
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      const [r, g, b] = fn(x, y, t, n); const i = (y * S + x) * 4;
+      img.data[i] = r; img.data[i + 1] = g; img.data[i + 2] = b; img.data[i + 3] = 255;
+    }
+    return img;
+  };
+}
+const TAU = Math.PI * 2;
+const hsv = (h, s, v) => { const f = n => { const k = (n + h * 6) % 6; return 255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1))); }; return [f(5), f(3), f(1)]; };
+function seeded(seed) { return () => (seed = (seed * 16807) % 2147483647) / 2147483647; }
+
+const EFFECTS = {
+  'Plasma': pixelEffect((x, y, t, n) => {
+    const a = TAU * t / n;
+    const v = Math.sin(x / 7 + a) + Math.sin(y / 10 + a) + Math.sin((x + y) / 9 + a)
+      + Math.sin(Math.hypot(x - 32 + 12 * Math.cos(a), y - 32 + 12 * Math.sin(a)) / 6);
+    return [0, 1, 2].map(k => 128 + 127 * Math.sin(v * Math.PI / 2 + k * TAU / 3));
+  }),
+  'Aurora': pixelEffect((x, y, t, n) => {
+    const a = TAU * t / n;
+    const band = Math.sin(x / 9 + a) * 8 + Math.sin(x / 4 - a * 2) * 3 + 26;
+    const glow = Math.max(0, 1 - Math.abs(y - band) / 14);
+    const star = ((x * 73 + y * 151) % 97 === 0) ? 160 * (0.5 + 0.5 * Math.sin(a * 3 + x)) : 0;
+    return [20 * glow + star, 255 * glow * glow + star, 160 * glow + 40 * (y / S) + star];
+  }),
+  'Rainbow tunnel': pixelEffect((x, y, t, n) => {
+    const dx = x - 31.5, dy = y - 31.5, d = Math.hypot(dx, dy), ang = Math.atan2(dy, dx);
+    const v = (200 / (d + 1) + t / n * 8) % 1;
+    return hsv(((ang / TAU + t / n) % 1 + 1) % 1, 0.9, Math.min(1, d / 10) * (v < 0.5 ? 1 : 0.35));
+  }),
+  'Fire': (() => {
+    // simulate the fire then wrap it so the loop is seamless: blend the end into the start
+    let cache = null;
+    return (t, n) => {
+      if (!cache || cache.n !== n) {
+        const rnd = seeded(7), heat = new Float32Array(S * (S + 1)), frames = [];
+        const total = n * 2;
+        for (let f = 0; f < total; f++) {
+          for (let x = 0; x < S; x++) heat[S * S + x] = rnd() > 0.45 ? 1 : 0.2;
+          for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+            const b = (y + 1) * S;
+            heat[y * S + x] = (heat[b + x] + heat[b + ((x + 1) % S)] + heat[b + ((x + S - 1) % S)] + heat[Math.min(S, y + 2) * S + x]) / 4.4;
+          }
+          if (f >= n) frames.push(heat.slice(0, S * S));
+        }
+        cache = { n, frames };
+      }
+      const h = cache.frames[t], img = new ImageData(S, S);
+      for (let i = 0; i < S * S; i++) {
+        const v = h[i];
+        img.data.set([Math.min(255, v * 3 * 255), Math.min(255, Math.max(0, v * 3 - 1) * 255), Math.min(255, Math.max(0, v * 3 - 2) * 255), 255], i * 4);
+      }
+      return img;
+    };
+  })(),
+  'Starfield': (() => {
+    const rnd = seeded(3), stars = Array.from({ length: 90 }, () => [rnd() * 2 - 1, rnd() * 2 - 1, rnd()]);
+    return (t, n) => {
+      const c = new OffscreenCanvas(S, S).getContext('2d');
+      c.fillStyle = '#000'; c.fillRect(0, 0, S, S);
+      for (const [sx, sy, sz] of stars) {
+        const z = 1 - ((sz + t / n) % 1);
+        const x = 32 + sx * 24 / z, y = 32 + sy * 24 / z;
+        if (x < 0 || y < 0 || x >= S || y >= S) continue;
+        const b = Math.min(255, (1 - z) * 320); c.fillStyle = `rgb(${b},${b},${Math.min(255, b + 40)})`;
+        c.fillRect(Math.floor(x), Math.floor(y), z < 0.3 ? 2 : 1, z < 0.3 ? 2 : 1);
+      }
+      return c.getImageData(0, 0, S, S);
+    };
+  })(),
+  'Matrix rain': (() => {
+    const rnd = seeded(11), cols = Array.from({ length: S }, () => [Math.floor(rnd() * S), 1 + Math.floor(rnd() * 2), 8 + Math.floor(rnd() * 16)]);
+    return (t, n) => {
+      const img = new ImageData(S, S);
+      for (let x = 0; x < S; x++) {
+        const [off, sp, len] = cols[x];
+        // the head moves a whole multiple of 64 over the loop, so it repeats seamlessly
+        const head = (off + Math.floor(t * S * sp / n)) % S;
+        for (let k = 0; k < len; k++) {
+          const y = (head - k + S) % S, i = (y * S + x) * 4, f = 1 - k / len;
+          img.data.set(k === 0 ? [200, 255, 200, 255] : [0, 255 * f * f, 60 * f, 255], i);
+        }
+        for (let y = 0; y < S; y++) img.data[(y * S + x) * 4 + 3] = 255;
+      }
+      return img;
+    };
+  })(),
+  'Bouncing heart': (t, n) => {
+    const c = new OffscreenCanvas(S, S).getContext('2d');
+    const a = TAU * t / n, beat = 1 + 0.12 * Math.max(0, Math.sin(a * 2)) ** 4;
+    const g = c.createRadialGradient(32, 32, 4, 32, 32, 46); g.addColorStop(0, '#3a0b2a'); g.addColorStop(1, '#0b0414');
+    c.fillStyle = g; c.fillRect(0, 0, S, S);
+    const shape = ['01100110','11111111','11111111','11111111','01111110','00111100','00011000'];
+    const px = Math.round(5 * beat), w = 8 * px, ox = Math.round(32 - w / 2), oy = Math.round(30 - 3.5 * px + Math.sin(a) * 4);
+    shape.forEach((row, ry) => [...row].forEach((v, rx) => {
+      if (v === '1') { c.fillStyle = (rx + ry) % 3 ? '#ff2d6f' : '#ff7aa5'; c.fillRect(ox + rx * px, oy + ry * px, px, px); }
+    }));
+    return c.getImageData(0, 0, S, S);
+  },
+};
+
+// ---------- preview loop ----------
+let frames = [], frameIdx = 0, mode = 'effect', lastTick = 0;
+function renderEffect(name) {
+  const n = Math.max(1, Math.min(40, +$('frames').value || 40));
+  frames = Array.from({ length: n }, (_, t) => EFFECTS[name](t, n));
+  frameIdx = 0;
+}
+function loop(ts) {
+  const speed = +$('speed').value || 80;
+  if (ts - lastTick > speed && frames.length && (mode !== 'draw' || drawPlaying)) {
+    lastTick = ts; frameIdx = (frameIdx + 1) % frames.length;
+  }
+  if (frames.length) ctx.putImageData(mode === 'draw' && !drawPlaying ? drawFrames[drawIdx] : frames[frameIdx], 0, 0);
+  requestAnimationFrame(loop);
+}
+
+let currentEffect = 'Plasma';
+for (const name of Object.keys(EFFECTS)) {
+  const b = document.createElement('button'); b.textContent = name;
+  b.onclick = () => { stopLive(); mode = 'effect'; currentEffect = name; renderEffect(name); markEffect(); };
+  $('effects').append(b);
+}
+function markEffect() { [...$('effects').children].forEach(b => b.classList.toggle('on', b.textContent === currentEffect && mode === 'effect')); }
+$('frames').onchange = () => mode === 'effect' && renderEffect(currentEffect);
+
+$('send').onclick = () => {
+  const list = mode === 'draw' ? drawFrames : frames;
+  sendFrames(list, +$('speed').value || 80);
+};
+
+// ---------- tabs ----------
+document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+  if (b.dataset.tab !== 'play' && snakeTimer) { clearInterval(snakeTimer); snakeTimer = null; }
+  document.querySelectorAll('[data-tab]').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + b.dataset.tab));
+  if (b.dataset.tab === 'play') { stopLive(); mode = 'play'; if (snake) { frames = [snakeFrame()]; frameIdx = 0; } }
+  else if (b.dataset.tab === 'draw') { stopLive(); mode = 'draw'; drawPlaying = false; frames = drawFrames; updateFrameLabel(); }
+  else if (b.dataset.tab === 'effects') { mode = 'effect'; renderEffect(currentEffect); }
+  markEffect();
+});
+
+// ---------- pixel editor ----------
+const blank = () => { const d = new ImageData(S, S); for (let i = 3; i < d.data.length; i += 4) d.data[i] = 255; return d; };
+let drawFrames = [blank()], drawIdx = 0, drawPlaying = false, tool = 'pen';
+const PALETTE = ['#000000','#ffffff','#ff3366','#ff8a00','#ffd400','#3ccf8e','#00c2ff','#3d5afe','#a855f7','#ff7aa5','#8b5a2b','#7f8c8d'];
+PALETTE.forEach(col => {
+  const s = document.createElement('span'); s.style.background = col;
+  s.onclick = () => { $('color').value = col; tool = 'pen'; markTool(); };
+  $('palette').append(s);
+});
+const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+function markTool() {
+  $('eraser').classList.toggle('on', tool === 'eraser'); $('fill').classList.toggle('on', tool === 'fill');
+  [...$('palette').children].forEach(s => s.classList.toggle('sel', tool === 'pen' && s.style.background && rgbToHex(s.style.background) === $('color').value));
+}
+const rgbToHex = rgb => '#' + rgb.match(/\d+/g).map(v => (+v).toString(16).padStart(2, '0')).join('');
+function cellFromEvent(e) {
+  const r = cv.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) / r.width * S), Math.floor((e.clientY - r.top) / r.height * S)];
+}
+function paint(x, y) {
+  if (x < 0 || y < 0 || x >= S || y >= S) return;
+  const d = drawFrames[drawIdx].data, col = tool === 'eraser' ? [0, 0, 0] : hex($('color').value);
+  if (tool === 'fill') {
+    const i0 = (y * S + x) * 4, target = [d[i0], d[i0 + 1], d[i0 + 2]];
+    if (target.every((v, k) => v === col[k])) return;
+    const stack = [[x, y]];
+    while (stack.length) {
+      const [cx, cy] = stack.pop(); if (cx < 0 || cy < 0 || cx >= S || cy >= S) continue;
+      const i = (cy * S + cx) * 4; if (d[i] !== target[0] || d[i + 1] !== target[1] || d[i + 2] !== target[2]) continue;
+      d.set(col, i); stack.push([cx + 1, cy], [cx - 1, cy], [cx, cy + 1], [cx, cy - 1]);
+    }
+  } else d.set(col, (y * S + x) * 4);
+}
+let down = false, last = null;
+cv.addEventListener('pointerdown', e => {
+  if (mode !== 'draw') return; down = true; drawPlaying = false; cv.setPointerCapture(e.pointerId);
+  last = cellFromEvent(e); paint(...last); if (tool === 'fill') down = false;
+});
+cv.addEventListener('pointermove', e => {
+  if (!down) return; const p = cellFromEvent(e);
+  const steps = Math.max(Math.abs(p[0] - last[0]), Math.abs(p[1] - last[1]), 1);
+  for (let s = 1; s <= steps; s++) paint(Math.round(last[0] + (p[0] - last[0]) * s / steps), Math.round(last[1] + (p[1] - last[1]) * s / steps));
+  last = p;
+});
+cv.addEventListener('pointerup', () => down = false);
+$('color').oninput = () => { tool = 'pen'; markTool(); };
+$('eraser').onclick = () => { tool = tool === 'eraser' ? 'pen' : 'eraser'; markTool(); };
+$('fill').onclick = () => { tool = tool === 'fill' ? 'pen' : 'fill'; markTool(); };
+$('clear').onclick = () => { drawFrames[drawIdx] = blank(); };
+function updateFrameLabel() { $('frameLabel').textContent = `Frame ${drawIdx + 1} / ${drawFrames.length}`; frames = drawFrames; }
+$('prevFrame').onclick = () => { drawPlaying = false; drawIdx = (drawIdx - 1 + drawFrames.length) % drawFrames.length; updateFrameLabel(); };
+$('nextFrame').onclick = () => { drawPlaying = false; drawIdx = (drawIdx + 1) % drawFrames.length; updateFrameLabel(); };
+$('addFrame').onclick = () => {
+  if (drawFrames.length >= 40) return status('The Pixoo holds at most 40 frames', 'err');
+  const copy = new ImageData(new Uint8ClampedArray(drawFrames[drawIdx].data), S, S);
+  drawFrames.splice(++drawIdx, 0, copy); updateFrameLabel();
+};
+$('delFrame').onclick = () => {
+  if (drawFrames.length === 1) { drawFrames[0] = blank(); return; }
+  drawFrames.splice(drawIdx, 1); drawIdx = Math.min(drawIdx, drawFrames.length - 1); updateFrameLabel();
+};
+$('playDraw').onclick = () => { drawPlaying = !drawPlaying; $('playDraw').textContent = drawPlaying ? 'Pause' : 'Play'; };
+
+// ---------- info displays ----------
+let liveTimer = null, weather = null, weatherAt = 0;
+const WMO = code => code === 0 ? 'sun' : code <= 3 ? 'cloud' : code <= 48 ? 'fog' : code <= 67 || (code >= 80 && code <= 82) ? 'rain' : code <= 77 || code === 85 || code === 86 ? 'snow' : 'storm';
+function drawIcon(c, kind, x, y) {
+  const px = (col, pts) => { c.fillStyle = col; pts.forEach(([a, b, w = 1, h = 1]) => c.fillRect(x + a, y + b, w, h)); };
+  if (kind === 'sun') { px('#ffd400', [[5, 3, 6, 10], [3, 5, 10, 6], [4, 4, 8, 8]]); px('#ffb000', [[7, 0, 2, 2], [7, 14, 2, 2], [0, 7, 2, 2], [14, 7, 2, 2], [2, 2], [13, 2], [2, 13], [13, 13]]); }
+  else {
+    px('#cfd6e4', [[3, 5, 8, 4], [1, 7, 14, 4], [9, 4, 4, 3]]);
+    if (kind === 'rain') px('#00c2ff', [[3, 12, 1, 2], [7, 13, 1, 2], [11, 12, 1, 2]]);
+    if (kind === 'snow') px('#ffffff', [[3, 13], [7, 14], [11, 13]]);
+    if (kind === 'storm') px('#ffd400', [[7, 11, 2, 1], [6, 12, 2, 1], [7, 13, 1, 2]]);
+    if (kind === 'fog') px('#8a93a6', [[1, 12, 14, 1], [3, 14, 10, 1]]);
+  }
+}
+async function getWeather() {
+  const lat = $('lat').value.trim(), lon = $('lon').value.trim();
+  if (!lat || !lon) return null;
+  if (weather && Date.now() - weatherAt < 10 * 60e3) return weather;
+  const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,relative_humidity_2m,weather_code&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`);
+  const j = await r.json();
+  weather = { t: Math.round(j.current.temperature_2m), h: j.current.relative_humidity_2m, kind: WMO(j.current.weather_code), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]) };
+  weatherAt = Date.now(); return weather;
+}
+async function infoFrame(withWeather) {
+  const c = new OffscreenCanvas(S, S).getContext('2d'), now = new Date();
+  const g = c.createLinearGradient(0, 0, 0, S); g.addColorStop(0, '#0b1030'); g.addColorStop(1, '#1d0b2e');
+  c.fillStyle = g; c.fillRect(0, 0, S, S);
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+  const top = withWeather ? 4 : 16;
+  text(c, hhmm, Math.round((S - textWidth(hhmm, 3)) / 2), top, '#ffffff', 3);
+  const date = `${String(now.getDate()).padStart(2, '0')}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  text(c, date, Math.round((S - textWidth(date)) / 2), top + 19, '#9aa1b2');
+  if (withWeather) {
+    let w = null; try { w = await getWeather(); } catch {}
+    if (w) {
+      drawIcon(c, w.kind, 4, 38);
+      text(c, `${w.t}°`, 24, 37, '#ffd400', 2);
+      text(c, `${w.lo}-${w.hi}°`, 24, 50, '#00c2ff');
+      text(c, `${w.h}%`, 24, 57, '#9aa1b2');
+    } else { const m = $('lat').value.trim() ? 'NO WEATHER' : 'SET LAT'; text(c, m, Math.round((S - textWidth(m)) / 2), 44, '#ff6b6b'); }
+  }
+  return c.getImageData(0, 0, S, S);
+}
+async function startLive(withWeather) {
+  stopLive(); mode = 'info';
+  const tick = async () => { const f = await infoFrame(withWeather); frames = [f]; frameIdx = 0; sendFrames([f], 1000); };
+  await tick();
+  // re-send just after each minute changes
+  const wait = 60e3 - (Date.now() % 60e3) + 300;
+  liveTimer = setTimeout(function again() { tick(); liveTimer = setTimeout(again, 60e3 - (Date.now() % 60e3) + 300); }, wait);
+  status(withWeather ? 'Live: clock + weather' : 'Live: clock', 'ok');
+}
+function stopLive() { if (liveTimer) clearTimeout(liveTimer); liveTimer = null; }
+$('clockBtn').onclick = () => startLive(false);
+$('weatherBtn').onclick = () => startLive(true);
+$('stopLive').onclick = () => { stopLive(); status('Live update stopped'); };
+$('locate').onclick = () => navigator.geolocation.getCurrentPosition(p => {
+  $('lat').value = p.coords.latitude.toFixed(3); $('lon').value = p.coords.longitude.toFixed(3);
+  store.set('lat', $('lat').value); store.set('lon', $('lon').value); weather = null;
+}, () => status('Location not available, type latitude and longitude', 'err'));
+$('lat').onchange = $('lon').onchange = () => { store.set('lat', $('lat').value); store.set('lon', $('lon').value); weather = null; };
+
+// ---------- live play: snake ----------
+// Live frames reuse a rolling PicID and reset it every 30 pushes, so the device never runs out of IDs.
+let livePic = 1000, liveBusy = false, liveSent = [];
+async function pushLive(img) {
+  if (liveBusy) return false;            // drop the frame if the last one is still in flight
+  liveBusy = true;
+  try {
+    if (livePic > 30) { await pixoo('Draw/ResetHttpGifId'); livePic = 1; }
+    await pixoo('Draw/SendHttpGif', { PicNum: 1, PicWidth: S, PicOffset: 0, PicID: livePic++, PicSpeed: 1000, PicData: frameToB64(img) });
+    const now = performance.now(); liveSent.push(now); liveSent = liveSent.filter(t => now - t < 3000);
+    $('fps').textContent = `Pixoo: ${(liveSent.length / 3).toFixed(1)} frames/s`;
+  } catch { $('fps').textContent = 'Pixoo not reachable'; }
+  finally { liveBusy = false; }
+  return true;
+}
+const G = 16, CELL = S / G;
+let snake = null, snakeTimer = null, dir = [1, 0], nextDir = [1, 0], food = [10, 8], score = 0, over = false;
+function placeFood() { do food = [Math.floor(Math.random() * G), Math.floor(Math.random() * G)]; while (snake.some(p => p[0] === food[0] && p[1] === food[1])); }
+function snakeFrame() {
+  const c = new OffscreenCanvas(S, S).getContext('2d');
+  c.fillStyle = '#06080f'; c.fillRect(0, 0, S, S);
+  c.fillStyle = '#ff3366'; c.fillRect(food[0] * CELL, food[1] * CELL, CELL, CELL);
+  snake.forEach(([x, y], i) => { c.fillStyle = i === 0 ? '#c8ffd0' : (i % 2 ? '#3ccf8e' : '#2fb07a'); c.fillRect(x * CELL, y * CELL, CELL, CELL); });
+  if (over) { c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(0, 20, S, 24); text(c, String(score), Math.round((S - textWidth(score, 2)) / 2), 27, '#ffd400', 2); }
+  return c.getImageData(0, 0, S, S);
+}
+function snakeStep() {
+  dir = nextDir;
+  const head = [(snake[0][0] + dir[0] + G) % G, (snake[0][1] + dir[1] + G) % G];
+  if (snake.some(p => p[0] === head[0] && p[1] === head[1])) { over = true; clearInterval(snakeTimer); snakeTimer = null; $('snakeBtn').textContent = 'Play again'; }
+  else {
+    snake.unshift(head);
+    if (head[0] === food[0] && head[1] === food[1]) { score++; placeFood(); } else snake.pop();
+  }
+  const f = snakeFrame(); frames = [f]; frameIdx = 0;
+  if ($('mirror').checked) pushLive(f);
+}
+function startSnake() {
+  stopLive(); mode = 'play'; over = false; score = 0;
+  snake = [[6, 8], [5, 8], [4, 8]]; dir = nextDir = [1, 0]; placeFood();
+  clearInterval(snakeTimer); snakeTimer = setInterval(snakeStep, 160);
+  $('snakeBtn').textContent = 'Restart';
+}
+$('snakeBtn').onclick = startSnake;
+function turn(d) { if (mode === 'play' && !(d[0] === -dir[0] && d[1] === -dir[1])) nextDir = d; }
+addEventListener('keydown', e => {
+  const d = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] }[e.key];
+  if (d && mode === 'play') { e.preventDefault(); turn(d); }
+});
+let swipe = null;
+cv.addEventListener('pointerdown', e => { if (mode === 'play') swipe = [e.clientX, e.clientY]; });
+cv.addEventListener('pointerup', e => {
+  if (!swipe) return; const dx = e.clientX - swipe[0], dy = e.clientY - swipe[1]; swipe = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) > 20) turn(Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)]);
+});
+
+renderEffect(currentEffect); markEffect();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
