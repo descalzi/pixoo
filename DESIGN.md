@@ -73,6 +73,7 @@ Tonal layering (bg < surface < surface-2) with 1 px borders; one soft offset sha
 
 ## Components
 Buttons (primary, secondary, ghost, icon; 44 px min, scale .97 on press, disabled + busy states), segmented radios, live effect tiles, colour swatches with 46 px hit areas, choice cards, toasts (polite live region; undo for clear/delete).
+Living Tilly is a secondary action inside Characters, not a new nav area: Send stays the one primary action on the stage, and starting the server player uses a secondary button plus the same live bar (dot + text status) that Info uses.
 
 ## Do's and Don'ts
 - Do keep the stage honest: what's on it is what Send sends.

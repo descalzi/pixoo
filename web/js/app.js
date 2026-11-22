@@ -374,6 +374,8 @@ function renderCharacter(name) {
   setStage(name, live ? 'Live face' : `${ch.frames} frames · ${ch.speed} ms`);
   $('charAbout').textContent = live ? ch.live.about : ch.about;
   $('liveFaceField').hidden = !ch.live;
+  $('livingTilly').hidden = name !== 'Tilly Tock';
+  if (name === 'Tilly Tock') tillyStatus();
   if (live && !weather) getWeather().then(w => { if (w && stageOwner === 'character') renderCharacter(currentChar); }).catch(() => {});
 }
 $('liveFace').checked = store.get('liveFace', '1') === '1';
@@ -397,6 +399,62 @@ for (const name of Object.keys(CHARACTERS)) {
   addTile($('characters'), 'character', name, ch.draw, ch.frames,
     () => { stopLive(); stopSnake(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
 }
+
+// Living Tilly: the home server plays her scenes on a schedule (server.py + tilly_player.py)
+let tillyPoll = null;
+const MOODS = { asleep: 'asleep', sleepy: 'sleepy', rainy: 'sheltering from the rain', cold: 'shivering in the cold',
+  hot: 'keeping cool in the heat', playful: 'out and about' };
+async function tillyApi(path, body) {
+  const r = await fetch('api/tilly/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'server error ' + r.status);
+  return j;
+}
+function showTilly(st) {
+  $('tillyStop').hidden = !st.running;
+  $('tillyStart').querySelector('span').textContent = st.running ? 'Update scenes' : 'Start on home server';
+  $('tillyBar').hidden = !st.running;
+  if (st.running) {
+    const w = st.weather ? ` · ${st.weather.t}°C` : '';
+    $('tillyText').textContent = st.error ? 'Waiting for the Pixoo' : `Playing: ${MOODS[st.mood] || 'starting'}${w}`;
+  }
+  clearTimeout(tillyPoll);
+  if (st.running && route === 'characters') tillyPoll = setTimeout(tillyStatus, 20000);
+}
+async function tillyStatus() {
+  if (!(await hasServer())) {
+    $('tillyStart').disabled = true;
+    $('tillyHint').textContent = 'Living Tilly runs on your home server. Open this page from the server (python3 server.py) to use it.';
+    return;
+  }
+  try { showTilly(await tillyApi('status')); } catch {}
+}
+$('tillyStart').onclick = async () => {
+  const btn = $('tillyStart'), bar = $('tillyProgress');
+  btn.disabled = true; btn.setAttribute('aria-busy', 'true'); bar.hidden = false;
+  try {
+    // render every scene here (the server has no canvas), then hand them over
+    const scenes = await tillyScenePack(p => {
+      const pct = Math.round(p * 100);
+      bar.firstElementChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
+    });
+    await tillyApi('scenes', { scenes });
+    const st = await tillyApi('start', { lat: $('lat').value.trim(), lon: $('lon').value.trim() });
+    overlayOn = false; stopLive();
+    showTilly(st);
+    toast($('lat').value.trim() ? 'Tilly is living on the Pixoo now' : 'Tilly is on. Set a weather location in Info so she can react to the weather.');
+  } catch (e) {
+    toast('Could not start Living Tilly: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.removeAttribute('aria-busy');
+    setTimeout(() => { bar.hidden = true; bar.firstElementChild.style.width = '0'; }, 600);
+  }
+};
+$('tillyStop').onclick = async () => {
+  try { showTilly(await tillyApi('stop', {})); toast('Living Tilly stopped'); }
+  catch (e) { toast('Could not stop Living Tilly: ' + e.message, 'err'); }
+};
+
 $('frames').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
 $('speed').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
 

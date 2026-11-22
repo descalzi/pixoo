@@ -17,6 +17,8 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+from tilly_player import TillyPlayer
+
 # Original firmware: port 80 /post. Newer units ("Pixoo-64 II"): port 9000 /divoom_api.
 ENDPOINTS = (":80/post", ":9000/divoom_api")
 
@@ -63,20 +65,28 @@ class Pixoo:
 
 class Handler(SimpleHTTPRequestHandler):
     pixoo: Pixoo = None
+    tilly: TillyPlayer = None
 
     def do_GET(self):
         if self.path == "/api/health":
-            return self._json(200, {"ok": True, "pixoo": self.pixoo.ip, "endpoint": self.pixoo.url})
+            return self._json(200, {"ok": True, "pixoo": self.pixoo.ip, "endpoint": self.pixoo.url, "tilly": True})
+        if self.path == "/api/tilly/status":
+            return self._json(200, self.tilly.status())
         return super().do_GET()
 
     def do_POST(self):
-        if self.path != "/api":
-            return self._json(404, {"error": "not found"})
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         try:
-            json.loads(body)
+            msg = json.loads(body or b"{}")
         except ValueError:
             return self._json(400, {"error": "body must be JSON"})
+        if self.path.startswith("/api/tilly/"):
+            return self._tilly(self.path[len("/api/tilly/"):], msg)
+        if self.path != "/api":
+            return self._json(404, {"error": "not found"})
+        # anything the page draws takes over the screen from Living Tilly
+        if self.tilly.running and str(msg.get("Command", "")).startswith("Draw/"):
+            self.tilly.stop()
         try:
             reply = self.pixoo.send(body)
         except OSError as e:
@@ -86,6 +96,20 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()
         self.wfile.write(reply)
+
+    def _tilly(self, action, msg):
+        try:
+            if action == "scenes":
+                return self._json(200, {"ok": True, "scenes": self.tilly.upload(msg.get("scenes", []))})
+            if action == "start":
+                self.tilly.start(msg)
+            elif action == "stop":
+                self.tilly.stop()
+            else:
+                return self._json(404, {"error": "not found"})
+        except (ValueError, KeyError, TypeError) as e:
+            return self._json(400, {"error": str(e)})
+        return self._json(200, self.tilly.status())
 
     def _json(self, code, obj):
         data = json.dumps(obj).encode()
@@ -121,7 +145,9 @@ def main():
         Handler.pixoo.detect()
     except ConnectionError as e:
         print(f"Warning: {e}. Will retry when the page sends something.")
-    web = Path(__file__).resolve().parent / "web"
+    here = Path(__file__).resolve().parent
+    web = here / "web"
+    Handler.tilly = TillyPlayer(Handler.pixoo, here / "data")  # resumes Living Tilly if it was on
     handler = partial(Handler, directory=str(web))
     # If the port is taken (8080 often is), try the next ones instead of failing.
     for port in range(args.port, args.port + 20):

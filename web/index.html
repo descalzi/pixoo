@@ -120,6 +120,19 @@
         <label class="check"><input type="checkbox" id="liveFace" checked> Live time and temperature</label>
         <small>The Pixoo draws the time and temperature itself and keeps them current, so nothing needs to stay open. Temperature follows the weather location from the Info section, or the city set in the Divoom app.</small>
       </div>
+      <fieldset class="group" id="livingTilly" hidden>
+        <legend>Living Tilly</legend>
+        <p class="hint" id="tillyHint">Your home server keeps Tilly busy all day. She dances, wanders off and comes back, gets sleepy at night and reacts to the weather from the Info section.</p>
+        <div class="tilly-actions">
+          <button class="btn btn-secondary" id="tillyStart" type="button"><svg class="icon" aria-hidden="true"><use href="#i-start"/></svg><span>Start on home server</span></button>
+          <button class="btn btn-ghost" id="tillyStop" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
+        </div>
+        <div class="live-bar" id="tillyBar" hidden>
+          <span class="live-dot" aria-hidden="true"></span>
+          <span id="tillyText" role="status">Playing</span>
+        </div>
+        <div class="progress" id="tillyProgress" role="progressbar" aria-label="Preparing Tilly's scenes" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span></span></div>
+      </fieldset>
     </section>
 
     <section class="view" id="view-draw" data-view="draw" aria-labelledby="h-draw" hidden>
@@ -249,6 +262,7 @@
 
 <script src="js/pixelart.js"></script>
 <script src="js/characters.js"></script>
+<script src="js/tilly.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
