@@ -101,7 +101,7 @@ function frameToB64(imgData) {
 }
 const UNREACHABLE = 'Can\'t reach the Pixoo. Check the address in Settings and that you\'re on the same wifi.';
 
-let sending = false;
+let sending = false, overlayOn = false;
 async function sendFrames(list, speed, { quiet = false } = {}) {
   if (sending) return false; sending = true;
   list = list.slice(0, 40);
@@ -110,6 +110,7 @@ async function sendFrames(list, speed, { quiet = false } = {}) {
   bar.hidden = list.length < 2;
   try {
     setConn('busy', 'Sending');
+    if (overlayOn) { await pixoo('Draw/ClearHttpText'); overlayOn = false; } // remove a live face's time/temperature
     await pixoo('Draw/ResetHttpGifId'); // prevents the device freezing after many pushes
     for (let i = 0; i < list.length; i++) {
       $('sendLabel').textContent = list.length > 1 ? `Sending ${i + 1} of ${list.length}` : 'Sending';
@@ -168,7 +169,7 @@ const FONT = {
   '0':'111101101101111','1':'010110010010111','2':'111001111100111','3':'111001111001111','4':'101101111001001',
   '5':'111100111001111','6':'111100111101111','7':'111001010010010','8':'111101111101111','9':'111101111001111',
   ':':'000010000010000','-':'000000111000000','°':'010101010000000','%':'101001010100101',' ':'000000000000000',
-  '.':'000000000000010',
+  '.':'000000000000010','!':'010010010000010',
   A:'010101111101101',B:'110101110101110',C:'011100100100011',D:'110101101101110',E:'111100110100111',F:'111100110100100',
   G:'011100101101011',H:'101101111101101',I:'111010010010111',J:'001001001101010',K:'101101110101101',L:'100100100100111',
   M:'101111111101101',N:'110101101101101',O:'010101101101010',P:'110101110100100',Q:'010101101110011',R:'110101110101101',
@@ -293,7 +294,7 @@ const EFFECTS = {
 // ---------- stage: preview loop ----------
 let frames = [], frameIdx = 0, lastTick = 0;
 let route = 'effects';
-let stageOwner = 'effect';   // what's on the stage: effect | draw | info | play
+let stageOwner = 'effect';   // what's on the stage: effect | character | draw | info | play
 const speed = () => Math.max(20, Math.min(1000, +$('speed').value || 80));
 const frameCount = () => Math.max(1, Math.min(40, +$('frames').value || 40));
 
@@ -304,9 +305,10 @@ function renderEffect(name) {
   frameIdx = 0; stageOwner = 'effect';
   setStage(name, `${n} frame${n > 1 ? 's' : ''} · ${speed()} ms`);
 }
+const stageSpeed = () => stageOwner === 'character' ? CHARACTERS[currentChar].speed : speed();
 function loop(ts) {
   const animate = stageOwner !== 'draw' || drawPlaying;
-  if (animate && frames.length && ts - lastTick > speed()) { lastTick = ts; frameIdx = (frameIdx + 1) % frames.length; }
+  if (animate && frames.length && ts - lastTick > stageSpeed()) { lastTick = ts; frameIdx = (frameIdx + 1) % frames.length; }
   const img = stageOwner === 'draw' && !drawPlaying ? drawFrames[drawIdx] : frames[frameIdx];
   if (img) ctx.putImageData(img, 0, 0);
   if (ts - thumbTick > 90 && !reducedMotion.matches) { thumbTick = ts; drawThumbs(); }
@@ -318,44 +320,103 @@ let currentEffect = store.get('effect', 'Plasma');
 if (!EFFECTS[currentEffect]) currentEffect = 'Plasma';
 const thumbs = [];
 let thumbTick = 0, thumbIdx = 0;
-for (const name of Object.keys(EFFECTS)) {
+// One live tile per option; draw(t, n) renders frame t of n.
+function addTile(grid, kind, name, draw, n, onPick) {
   const b = document.createElement('button');
-  b.type = 'button'; b.className = 'effect'; b.setAttribute('role', 'radio'); b.dataset.effect = name;
+  b.type = 'button'; b.className = 'effect'; b.setAttribute('role', 'radio'); b.dataset[kind] = name;
   const c = document.createElement('canvas'); c.width = c.height = S; c.setAttribute('aria-hidden', 'true');
   const label = document.createElement('span'); label.textContent = name;
   b.append(c, label);
-  b.onclick = () => { stopLive(); stopSnake(); currentEffect = name; store.set('effect', name); renderEffect(name); markEffect(); };
-  $('effects').append(b);
-  thumbs.push({ ctx: c.getContext('2d'), frames: null, name });
+  b.onclick = onPick;
+  grid.append(b);
+  thumbs.push({ ctx: c.getContext('2d'), frames: null, draw, n });
+}
+for (const name of Object.keys(EFFECTS)) {
+  addTile($('effects'), 'effect', name, EFFECTS[name], 20,
+    () => { stopLive(); stopSnake(); currentEffect = name; store.set('effect', name); renderEffect(name); markEffect(); });
 }
 function drawThumbs() {
   thumbIdx++;
   for (const t of thumbs) {
-    if (!t.frames) t.frames = Array.from({ length: 20 }, (_, i) => EFFECTS[t.name](i, 20));
-    t.ctx.putImageData(t.frames[thumbIdx % 20], 0, 0);
+    if (!t.frames) t.frames = Array.from({ length: t.n }, (_, i) => t.draw(i, t.n));
+    t.ctx.putImageData(t.frames[thumbIdx % t.n], 0, 0);
   }
 }
 function markEffect() {
-  $$('.effect').forEach(b => b.setAttribute('aria-checked', String(stageOwner === 'effect' && b.dataset.effect === currentEffect)));
+  $$('[data-effect]').forEach(b => b.setAttribute('aria-checked', String(stageOwner === 'effect' && b.dataset.effect === currentEffect)));
+  $$('[data-character]').forEach(b => b.setAttribute('aria-checked', String(stageOwner === 'character' && b.dataset.character === currentChar)));
+}
+
+// ---------- characters ----------
+let currentChar = store.get('character', 'Tilly Tock');
+if (!CHARACTERS[currentChar]) currentChar = Object.keys(CHARACTERS)[0];
+let charFrames = [];   // what gets sent; `frames` may add a preview of the live overlay on top
+const liveFace = () => !!CHARACTERS[currentChar].live && $('liveFace').checked;
+function overlayPreview(img, items) {
+  // approximate the Pixoo's own overlay with our pixel font, for the stage only
+  const c = new OffscreenCanvas(S, S).getContext('2d');
+  c.putImageData(img, 0, 0);
+  const now = new Date();
+  for (const it of items) {
+    const str = it.type === 5 ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+      : it.type === 17 ? (weather ? `${weather.t}°C` : '--°C') : (it.TextString || '');
+    const w = textWidth(str);
+    const x = it.align === 3 ? it.x + it.TextWidth - w : it.align === 2 ? it.x + Math.round((it.TextWidth - w) / 2) : it.x;
+    text(c, str, x, it.y, it.color);
+  }
+  return c.getImageData(0, 0, S, S);
+}
+function renderCharacter(name) {
+  const ch = CHARACTERS[name], live = !!ch.live && $('liveFace').checked;
+  charFrames = Array.from({ length: ch.frames }, (_, t) => ch.draw(t, ch.frames, { live }));
+  frames = live ? charFrames.map(f => overlayPreview(f, ch.live.items)) : charFrames;
+  frameIdx = 0; stageOwner = 'character';
+  setStage(name, live ? 'Live face' : `${ch.frames} frames · ${ch.speed} ms`);
+  $('charAbout').textContent = live ? ch.live.about : ch.about;
+  $('liveFaceField').hidden = !ch.live;
+  if (live && !weather) getWeather().then(w => { if (w && stageOwner === 'character') renderCharacter(currentChar); }).catch(() => {});
+}
+$('liveFace').checked = store.get('liveFace', '1') === '1';
+$('liveFace').onchange = () => { store.set('liveFace', $('liveFace').checked ? '1' : '0'); renderCharacter(currentChar); markEffect(); };
+async function sendCharacter() {
+  renderCharacter(currentChar); // fresh render, so Tilly's hands show the current time
+  const ch = CHARACTERS[currentChar];
+  const ok = await sendFrames(charFrames, ch.speed, { quiet: liveFace() });
+  if (!ok || !liveFace()) return;
+  try {
+    const lat = $('lat').value.trim(), lon = $('lon').value.trim();
+    if (lat && lon) await pixoo('Sys/LogAndLat', { Latitude: lat, Longitude: lon }); // weather location for the Pixoo
+    await pixoo('Draw/ClearHttpText');
+    await pixoo('Draw/SendHttpItemList', { ItemList: ch.live.items });
+    overlayOn = true;
+    toast(`${currentChar} is on the Pixoo with live time and temperature`);
+  } catch { toast('The animation was sent, but the live time and temperature could not be added.', 'err'); }
+}
+for (const name of Object.keys(CHARACTERS)) {
+  const ch = CHARACTERS[name];
+  addTile($('characters'), 'character', name, ch.draw, ch.frames,
+    () => { stopLive(); stopSnake(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
 }
 $('frames').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
 $('speed').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
 
 $('send').onclick = () => {
   if (stageOwner === 'info') return startLive(liveKind);
+  if (stageOwner === 'character') return sendCharacter();
   const list = stageOwner === 'draw' ? drawFrames : frames;
-  sendFrames(list, stageOwner === 'play' ? 1000 : speed());
+  sendFrames(list, stageOwner === 'play' ? 1000 : stageSpeed());
 };
 
 // ---------- routing: every section has its own URL ----------
-const ROUTES = ['effects', 'draw', 'info', 'play', 'settings'];
+const ROUTES = ['effects', 'characters', 'draw', 'info', 'play', 'settings'];
 function go() {
   const next = ROUTES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'effects';
   if (next !== 'play') stopSnake();
   route = next; document.body.dataset.route = next;
   $$('[data-view]').forEach(v => v.hidden = v.dataset.view !== next);
-  $$('.nav a').forEach(a => a.dataset.area === next ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
+  $$('.nav a, .topbar-settings').forEach(a => a.dataset.area === next ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   if (next === 'effects' && stageOwner !== 'effect' && !liveTimer) { renderEffect(currentEffect); }
+  if (next === 'characters' && stageOwner !== 'character' && !liveTimer) { renderCharacter(currentChar); }
   if (next === 'draw' && !liveTimer) { stageOwner = 'draw'; setDrawPlaying(false); updateFrameLabel(); }
   if (next === 'play' && snake && !liveTimer) { stageOwner = 'play'; frames = [snakeFrame()]; frameIdx = 0; setStage('Snake', `Score ${score}`); }
   markEffect();

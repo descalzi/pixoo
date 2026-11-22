@@ -57,13 +57,13 @@ Source style: uiux library §10.10 Playful SaaS, palette P3 Midnight Arcade (dar
 **Key characteristics:** one stage that always shows exactly what will be sent; each section owns a colour; connection details live in Settings, with a status pill in the top bar.
 
 ## Colors
-Strategy: Full palette, restrained in area. Each section keeps one colour across nav, heading marker and selection: Effects pink, Draw mint, Info gold, Play and Settings violet (the accent). Fills always carry dark text (`#120F26` / `#15122B`). Status uses ok/warn/crit plus a word, never colour alone.
+Strategy: Full palette, restrained in area. Each section keeps one colour across nav, heading marker and selection: Effects pink, Characters sky (#8FD3FF), Draw mint, Info gold, Play and Settings violet (the accent). Fills always carry dark text (`#120F26` / `#15122B`). Status uses ok/warn/crit plus a word, never colour alone.
 
 ## Typography
 Display: Bricolage Grotesque 700–800 for headings and readouts. UI: Rethink Sans 400/500/600. Numbers use tabular figures. Sizes: 2 / 1.5 / 1.25 / 1 / 0.875 / 0.8125 rem.
 
 ## Layout
-Phones: top bar, stage, section panel, bottom nav (5 items, icon + label). From 1024 px: labelled sidebar, stage sticky on the left, section panel on the right. Settings hides the stage. 4 px spacing base.
+Phones: top bar (status pill + Settings button), stage, section panel, bottom nav (5 items, icon + label: Effects, Characters, Draw, Info, Play). From 1024 px: labelled sidebar, stage sticky on the left, section panel on the right. Settings hides the stage. 4 px spacing base.
 
 ## Elevation & Depth
 Tonal layering (bg < surface < surface-2) with 1 px borders; one soft offset shadow on the stage frame and toasts.

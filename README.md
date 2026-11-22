@@ -18,9 +18,10 @@ Options: `python3 server.py --pixoo 192.168.4.192 --port 8080`. If the port is t
 
 ## What's in the page
 
-Sections: Effects, Draw, Info, Play and Settings (Pixoo address, connection method, theme). The connection status sits in the top bar.
+Sections: Effects, Characters, Draw, Info, Play and Settings (Pixoo address, connection method, theme). The connection status sits in the top bar.
 
 - **Effects**: plasma, aurora, fire, rainbow tunnel, starfield, matrix rain, bouncing heart (up to 40 frames, adjustable speed).
+- **Characters**: Tilly Tock (an alarm-clock character who waves and winks) and a cheeky Santa whose trousers fall down. Tilly has a *live face* mode: the Pixoo itself draws the real time and temperature above her and keeps them current, so nothing has to stay running.
 - **Draw**: a 64×64 pixel editor with palette, fill, eraser and multiple frames.
 - **Info displays**: a clock, or a clock with weather from [Open-Meteo](https://open-meteo.com) (free, no key). Updates every minute while the page is open.
 - **Play**: snake steered with the arrow keys or by swiping, mirrored live to the Pixoo, with a frame-rate counter.
@@ -38,6 +39,11 @@ that, so use the server there.
 Both take a JSON body with a `Command` field (`Draw/SendHttpGif`, `Draw/ResetHttpGifId`, `Channel/SetBrightness`, …).
 The page, the server and the Python client auto-detect which one your device uses.
 Requests are paced at least 30 ms apart because the device handles one at a time.
+
+Live overlays use `Draw/SendHttpItemList`: each item has a `type` the device fills in and updates itself
+(5 = hour:minute, 17 = temperature, 14 = weekday, 20 = weather word, 22 = fixed text,
+23 = text fetched from a URL that returns `{"DispData": "..."}`). `Draw/ClearHttpText` removes them.
+`Sys/LogAndLat` sets the device's weather location.
 
 ## Python client (optional)
 
