@@ -725,6 +725,42 @@ async function forecastFrame() {
   });
   return c.getImageData(0, 0, S, S);
 }
+async function todayFrame() {
+  // today in focus: time and current weather large, the next six days in one row at the bottom
+  const c = new OffscreenCanvas(S, S).getContext('2d'), now = new Date();
+  skyBackground(c, now);
+  const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  fancyText(c, hhmm, 32, 1, { big: true, scale: 2, top: '#FFFFFF', bottom: '#FFC94A', align: 'center' });
+  let w = null, f = null;
+  try { [w, f] = await Promise.all([getWeather(), getForecast()]); } catch {}
+  if (!w) {
+    const m = $('lat').value.trim() ? 'NO WEATHER' : 'SET LOCATION';
+    fancyText(c, m, 32, 30, { big: false, top: '#FFB3B3', bottom: '#FF6B6B', align: 'center' });
+    return c.getImageData(0, 0, S, S);
+  }
+  drawIcon(c, w.kind, 2, 18);
+  const warm = w.t >= 25 ? ['#FFE29A', '#FF7A3D'] : w.t <= 5 ? ['#E6F6FF', '#5FB4FF'] : ['#FFFFFF', '#7CF0C5'];
+  fancyText(c, `${w.t}°`, 44, 18, { big: true, scale: 2, top: warm[0], bottom: warm[1], align: 'center' });
+  const lo = `${w.lo}°`, hi = `${w.hi}°`, sep = 5;
+  const lw = fancyWidth(lo, { big: false }), hw = fancyWidth(hi, { big: false });
+  const x0 = 44 - Math.round((lw + sep + hw) / 2);
+  fancyText(c, lo, x0, 35, { big: false, top: '#BFE6FF', bottom: '#5FB4FF' });
+  c.fillStyle = 'rgba(255,255,255,.6)'; c.fillRect(x0 + lw + 2, 37, 1, 1);
+  fancyText(c, hi, x0 + lw + sep, 35, { big: false, top: '#FFE29A', bottom: '#FF9A3D' });
+  if (!f) return c.getImageData(0, 0, S, S);
+  // the week strip
+  c.fillStyle = 'rgba(5,4,20,.45)'; c.fillRect(0, 42, S, 22);
+  c.fillStyle = 'rgba(255,255,255,.2)'; c.fillRect(0, 42, S, 1);
+  const days = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+  f.slice(1, 7).forEach((d, i) => {
+    const cx = 6 + i * 10 + (i > 2 ? 1 : 0);
+    fancyText(c, days[new Date(d.day + 'T12:00').getDay()], cx, 44, { big: false, top: '#FFFFFF', bottom: '#BFC9E6', align: 'center' });
+    miniIcon(c, d.kind, cx - 4, 50);
+    const warmD = d.hi >= 25 ? ['#FFE29A', '#FF7A3D'] : d.hi <= 5 ? ['#E6F6FF', '#5FB4FF'] : ['#FFFFFF', '#7CF0C5'];
+    fancyText(c, String(d.hi), cx, 58, { big: false, top: warmD[0], bottom: warmD[1], align: 'center' });
+  });
+  return c.getImageData(0, 0, S, S);
+}
 function skyBackground(c, now) {
   // the background follows the time of day: deep night, dawn, daytime blue, sunset
   const h = now.getHours() + now.getMinutes() / 60;
@@ -771,10 +807,10 @@ async function startLive(kind) {
   liveKind = kind; stageOwner = 'info';
   const withWeather = kind === 'weather';
   $$('[data-display]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.display === kind)));
-  setStage(kind === 'forecast' ? 'Week forecast' : withWeather ? 'Clock and weather' : 'Clock', 'Updates every minute');
+  setStage(kind === 'today' ? 'Today and the week' : kind === 'forecast' ? 'Week forecast' : withWeather ? 'Clock and weather' : 'Clock', 'Updates every minute');
   $('liveBar').hidden = false; $('liveText').textContent = 'Updating the Pixoo every minute';
   const tick = async () => {
-    const f = kind === 'forecast' ? await forecastFrame() : await infoFrame(withWeather);
+    const f = kind === 'today' ? await todayFrame() : kind === 'forecast' ? await forecastFrame() : await infoFrame(withWeather);
     if (stageOwner === 'info') { frames = [f]; frameIdx = 0; }
     const ok = await sendFrames([f], 1000, { quiet: true });
     $('liveText').textContent = ok ? `Updated at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Last update failed, retrying next minute';
