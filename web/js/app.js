@@ -333,7 +333,7 @@ function addTile(grid, kind, name, draw, n, onPick) {
 }
 for (const name of Object.keys(EFFECTS)) {
   addTile($('effects'), 'effect', name, EFFECTS[name], 20,
-    () => { stopLive(); stopSnake(); currentEffect = name; store.set('effect', name); renderEffect(name); markEffect(); });
+    () => { stopLive(); stopGame(); currentEffect = name; store.set('effect', name); renderEffect(name); markEffect(); });
 }
 function drawThumbs() {
   thumbIdx++;
@@ -397,7 +397,7 @@ async function sendCharacter() {
 for (const name of Object.keys(CHARACTERS)) {
   const ch = CHARACTERS[name];
   addTile($('characters'), 'character', name, ch.draw, ch.frames,
-    () => { stopLive(); stopSnake(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
+    () => { stopLive(); stopGame(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
 }
 
 // Living Tilly: the home server plays her scenes on a schedule (server.py + tilly_player.py)
@@ -469,14 +469,14 @@ $('send').onclick = () => {
 const ROUTES = ['effects', 'characters', 'draw', 'info', 'play', 'settings'];
 function go() {
   const next = ROUTES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'effects';
-  if (next !== 'play') stopSnake();
+  if (next !== 'play') stopGame();
   route = next; document.body.dataset.route = next;
   $$('[data-view]').forEach(v => v.hidden = v.dataset.view !== next);
   $$('.nav a, .topbar-settings').forEach(a => a.dataset.area === next ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
   if (next === 'effects' && stageOwner !== 'effect' && !liveTimer) { renderEffect(currentEffect); }
   if (next === 'characters' && stageOwner !== 'character' && !liveTimer) { renderCharacter(currentChar); }
   if (next === 'draw' && !liveTimer) { stageOwner = 'draw'; setDrawPlaying(false); updateFrameLabel(); }
-  if (next === 'play' && snake && !liveTimer) { stageOwner = 'play'; frames = [snakeFrame()]; frameIdx = 0; setStage('Snake', `Score ${score}`); }
+  if (next === 'play' && !liveTimer) showGame();
   markEffect();
 }
 addEventListener('hashchange', () => { go(); $('main').focus({ preventScroll: true }); });
@@ -654,7 +654,7 @@ async function infoFrame(withWeather) {
   return c.getImageData(0, 0, S, S);
 }
 async function startLive(kind) {
-  stopLive(); stopSnake();
+  stopLive(); stopGame();
   liveKind = kind; stageOwner = 'info';
   const withWeather = kind === 'weather';
   $$('[data-display]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.display === kind)));
@@ -695,7 +695,7 @@ function checkCoord(el, max) {
 $('lat').onblur = () => checkCoord($('lat'), 90);
 $('lon').onblur = () => checkCoord($('lon'), 180);
 
-// ---------- play: snake ----------
+// ---------- play: arcade games ----------
 // Live frames use a rolling PicID that resets every 30 pushes, so the device never runs out of IDs.
 let livePic = 1000, liveBusy = false, liveSent = [];
 async function pushLive(img) {
@@ -710,55 +710,99 @@ async function pushLive(img) {
   } catch { $('fps').textContent = 'Pixoo not reachable'; setConn('err', 'Not connected'); }
   finally { liveBusy = false; }
 }
-const G = 16, CELL = S / G;
-let snake = null, snakeTimer = null, dir = [1, 0], nextDir = [1, 0], food = [10, 8], score = 0, over = false;
-function placeFood() { do food = [Math.floor(Math.random() * G), Math.floor(Math.random() * G)]; while (snake.some(p => p[0] === food[0] && p[1] === food[1])); }
-function snakeFrame() {
-  const c = new OffscreenCanvas(S, S).getContext('2d');
-  c.fillStyle = '#06080f'; c.fillRect(0, 0, S, S);
-  c.fillStyle = '#ff3366'; c.fillRect(food[0] * CELL, food[1] * CELL, CELL, CELL);
-  snake.forEach(([x, y], i) => { c.fillStyle = i === 0 ? '#c8ffd0' : (i % 2 ? '#3ccf8e' : '#2fb07a'); c.fillRect(x * CELL, y * CELL, CELL, CELL); });
-  if (over) { c.fillStyle = 'rgba(0,0,0,.6)'; c.fillRect(0, 20, S, 24); text(c, String(score), Math.round((S - textWidth(score, 2)) / 2), 27, '#ffd400', 2); }
-  return c.getImageData(0, 0, S, S);
+// The games themselves live in games.js. A game runs in lockstep with the Pixoo: each tick waits
+// for the previous frame to land, so the device never drops a move, however slow it is.
+let currentGame = GAMES[store.get('game', '')] ? store.get('game') : 'Snake';
+let game = null, gameRun = 0, gameRunning = false;
+function setGameButton(label, icon) { $('gameBtn').querySelector('span').textContent = label; $('gameBtn').querySelector('use').setAttribute('href', icon); }
+function gameStatus() {
+  $('score').textContent = game ? game.score : 0;
+  $('lives').textContent = game?.lives ?? '';
+  setStage(currentGame, !game ? 'Press Start to play' : game.over ? `Game over · score ${game.score}` : gameRunning ? `Score ${game.score}` : `Paused · score ${game.score}`);
 }
-function setSnakeButton(label, icon) { $('snakeBtn').querySelector('span').textContent = label; $('snakeBtn').querySelector('use').setAttribute('href', icon); }
-function snakeStep() {
-  dir = nextDir;
-  const head = [(snake[0][0] + dir[0] + G) % G, (snake[0][1] + dir[1] + G) % G];
-  if (snake.some(p => p[0] === head[0] && p[1] === head[1])) {
-    over = true; clearInterval(snakeTimer); snakeTimer = null; setSnakeButton('Play again', '#i-start');
-    toast(`Game over. Score ${score}.`);
-  } else {
-    snake.unshift(head);
-    if (head[0] === food[0] && head[1] === food[1]) { score++; placeFood(); } else snake.pop();
+function showGame() {
+  stageOwner = 'play';
+  frames = [(game || GAMES[currentGame].make()).frame()]; frameIdx = 0;
+  gameStatus();
+}
+async function runGame(id) {
+  const spec = GAMES[currentGame];
+  while (id === gameRun && game && !game.over) {
+    const t0 = performance.now();
+    game.step();
+    const f = game.frame();
+    if (stageOwner === 'play') { frames = [f]; frameIdx = 0; }
+    gameStatus();
+    if ($('mirror').checked) await Promise.race([pushLive(f), pause(1500)]);
+    await pause(Math.max(0, spec.tick - (performance.now() - t0)));
   }
-  $('score').textContent = score; setStage('Snake', `Score ${score}`);
-  const f = snakeFrame(); frames = [f]; frameIdx = 0;
-  if ($('mirror').checked) pushLive(f);
+  if (id === gameRun && game?.over) {
+    gameRunning = false; setGameButton('Play again', '#i-start'); gameStatus();
+    toast(`Game over. Score ${game.score}.`);
+  }
 }
-function startSnake() {
-  stopLive(); stageOwner = 'play'; over = false; score = 0; liveSent = [];
-  snake = [[6, 8], [5, 8], [4, 8]]; dir = nextDir = [1, 0]; placeFood();
-  clearInterval(snakeTimer); snakeTimer = setInterval(snakeStep, 160);
-  setSnakeButton('Restart', '#i-start'); $('fps').textContent = 'Measuring';
+function resumeGame() {
+  stopLive(); stageOwner = 'play'; gameRunning = true;
+  setGameButton('Pause', '#i-pause'); $('restartBtn').hidden = false;
+  runGame(++gameRun);
 }
-function stopSnake() { if (snakeTimer) { clearInterval(snakeTimer); snakeTimer = null; setSnakeButton(snake ? 'Resume' : 'Start snake', '#i-start'); } }
-$('snakeBtn').onclick = () => {
-  if (snake && !over && !snakeTimer) { stageOwner = 'play'; snakeTimer = setInterval(snakeStep, 160); setSnakeButton('Restart', '#i-start'); return; }
-  startSnake();
+function startGame() {
+  game = GAMES[currentGame].make(); liveSent = []; $('fps').textContent = 'Measuring';
+  resumeGame();
+}
+function stopGame() {
+  if (!gameRunning) return;
+  gameRun++; gameRunning = false;
+  setGameButton('Resume', '#i-start'); gameStatus();
+}
+function pickGame(name) {
+  stopGame();
+  currentGame = name; store.set('game', name); game = null;
+  const spec = GAMES[name];
+  $('gameHelp').textContent = `${spec.about} ${spec.help}`;
+  $('fireBtn').hidden = !spec.fire;
+  $('livesBox').hidden = spec.make().lives == null;
+  $('restartBtn').hidden = true; setGameButton('Start', '#i-start');
+  $$('[data-game]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.game === name)));
+  if (route === 'play' && !liveTimer) showGame();
+}
+// live tiles: each game plays itself on autopilot
+for (const name of Object.keys(GAMES)) {
+  let demo = null;
+  addTile($('games'), 'game', name, t => { if (t === 0) demo = GAMES[name].make(); demo.autopilot(); demo.step(); return demo.frame(); }, 48,
+    () => { stopLive(); pickGame(name); showGame(); });
+}
+$('gameBtn').onclick = () => {
+  if (gameRunning) return stopGame();
+  if (game && !game.over) return resumeGame();
+  startGame();
 };
-const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-function turn(d) { if (stageOwner === 'play' && !(d[0] === -dir[0] && d[1] === -dir[1])) nextDir = d; }
-$$('[data-dir]').forEach(b => b.onclick = () => turn(DIRS[b.dataset.dir]));
+$('restartBtn').onclick = startGame;
+
+// input: taps and key presses go to press(); held keys and buttons also go to hold()
+const ACTION = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', ' ': 'fire',
+  w: 'up', s: 'down', a: 'left', d: 'right' };
 addEventListener('keydown', e => {
-  const d = { ArrowUp: DIRS.up, ArrowDown: DIRS.down, ArrowLeft: DIRS.left, ArrowRight: DIRS.right }[e.key];
-  if (d && route === 'play' && snakeTimer) { e.preventDefault(); turn(d); }
+  const act = ACTION[e.key];
+  if (!act || route !== 'play' || !gameRunning || e.target.closest?.('input, select, textarea')) return;
+  e.preventDefault();
+  if (!e.repeat) game.press(act);
+  game.hold(act, true);
+});
+addEventListener('keyup', e => { const act = ACTION[e.key]; if (act && game) game.hold(act, false); });
+$$('[data-dir]').forEach(b => {
+  const act = b.dataset.dir;
+  const release = () => game?.hold(act, false);
+  b.addEventListener('pointerdown', e => { if (!game || !gameRunning) return; e.preventDefault(); game.press(act); game.hold(act, true); });
+  b.addEventListener('pointerup', release); b.addEventListener('pointerleave', release); b.addEventListener('pointercancel', release);
+  b.addEventListener('click', e => { if (e.detail === 0 && game && gameRunning) game.press(act); }); // keyboard activation
 });
 let swipe = null;
 cv.addEventListener('pointerdown', e => { if (route === 'play') swipe = [e.clientX, e.clientY]; });
 cv.addEventListener('pointerup', e => {
-  if (!swipe) return; const dx = e.clientX - swipe[0], dy = e.clientY - swipe[1]; swipe = null;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) > 20) turn(Math.abs(dx) > Math.abs(dy) ? [Math.sign(dx), 0] : [0, Math.sign(dy)]);
+  if (!swipe || !game || !gameRunning) return; const dx = e.clientX - swipe[0], dy = e.clientY - swipe[1]; swipe = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) > 20) game.press(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  else if (GAMES[currentGame].fire) game.press('fire');   // a tap on the stage shoots
 });
 
 // ---------- start ----------
@@ -766,5 +810,6 @@ showBright();
 setTool('pen');
 renderEffect(currentEffect);
 drawThumbs();
+pickGame(currentGame);
 go();
 requestAnimationFrame(loop);
