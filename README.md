@@ -24,7 +24,7 @@ Sections: Effects, Characters, Draw, Info, Play and Settings (Pixoo address, con
 - **Characters**: Tilly Tock (an alarm-clock character who waves and winks) and a cheeky Santa whose trousers fall down. Tilly has a *live face* mode: the Pixoo itself draws the real time and temperature above her and keeps them current, so nothing has to stay running.
 - **Draw**: a 64×64 pixel editor with palette, fill, eraser and multiple frames.
 - **Info displays**: a clock, or a clock with weather from [Open-Meteo](https://open-meteo.com) (free, no key). Updates every minute while the page is open.
-- **Play**: snake steered with the arrow keys or by swiping, mirrored live to the Pixoo, with a frame-rate counter.
+- **Play**: three arcade games with the shaded pixel look: Snake, Rock Patrol (an asteroid-style shooter) and Lantern Maze (a maze chase). Play with the arrow keys and Space, by swiping, or with the on-screen pad. Each game runs in step with the Pixoo, so no move is dropped however few frames a second it manages.
 
 You can also open `web/index.html` directly on a computer on the same wifi. Phone browsers usually block
 that, so use the server there.

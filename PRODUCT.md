@@ -11,7 +11,7 @@ Primary user: Martin, at home, making animations and info screens for his Divoom
 Physical scene: on a phone or laptop in the living room, often in the evening, looking back and forth between the screen and the glowing Pixoo panel → theme: both, following the OS, dark as the lead (pixel art reads truest on a dark surround).
 
 ## What it does
-Previews and sends 64×64 animations (generated effects or hand-drawn frames), keeps a clock/weather display updated, and mirrors a live snake game to the device.
+Previews and sends 64×64 animations (generated effects or hand-drawn frames), keeps a clock/weather display updated, and mirrors live arcade games (Snake, Rock Patrol, Lantern Maze) to the device.
 
 ## Surfaces and modes
 | Surface | Mode | Primary action |
@@ -19,7 +19,7 @@ Previews and sends 64×64 animations (generated effects or hand-drawn frames), k
 | #effects | Operate | Send to Pixoo |
 | #draw | Operate | Send to Pixoo |
 | #info | Operate | Start a live display |
-| #play | Operate | Start snake |
+| #play | Operate | Start a game |
 | #settings | Operate | Test connection |
 
 ## Real assets and facts
