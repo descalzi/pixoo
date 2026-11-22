@@ -9,6 +9,8 @@ Only needs Python 3 (standard library).
     python3 server.py --pixoo 192.168.4.192 --port 8080
 """
 import argparse
+import base64
+import itertools
 import json
 import threading
 import time
@@ -17,6 +19,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
+import gifenc
 from tilly_player import TillyPlayer
 
 # Original firmware: port 80 /post. Newer units ("Pixoo-64 II"): port 9000 /divoom_api.
@@ -72,6 +75,9 @@ class Pixoo:
 class Handler(SimpleHTTPRequestHandler):
     pixoo: Pixoo = None
     tilly: TillyPlayer = None
+    gifs = {}  # recent animations the Pixoo can download, by file name
+    gif_ids = itertools.count(1)
+    gif_fetched = set()  # names the Pixoo has actually downloaded
 
     def do_GET(self):
         if self.path == "/api/health":
@@ -80,6 +86,14 @@ class Handler(SimpleHTTPRequestHandler):
                                     "frame_ms": round(fm) if fm else None})
         if self.path == "/api/tilly/status":
             return self._json(200, self.tilly.status())
+        if self.path.startswith("/gif/") and self.path[5:] in self.gifs:
+            data = self.gifs[self.path[5:]]
+            self.gif_fetched.add(self.path[5:])
+            self.send_response(200)
+            self.send_header("Content-Type", "image/gif")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            return self.wfile.write(data)
         return super().do_GET()
 
     def do_POST(self):
@@ -90,6 +104,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(400, {"error": "body must be JSON"})
         if self.path.startswith("/api/tilly/"):
             return self._tilly(self.path[len("/api/tilly/"):], msg)
+        if self.path == "/api/gif":
+            return self._gif(msg)
         if self.path != "/api":
             return self._json(404, {"error": "not found"})
         # anything the page draws takes over the screen from Living Tilly
@@ -104,6 +120,42 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()
         self.wfile.write(reply)
+
+    def _gif(self, msg):
+        """Experimental: turn the frames into one GIF file and ask the Pixoo to download and play
+        it (Device/PlayTFGif with a web link), instead of sending one request per frame."""
+        try:
+            frames = [base64.b64decode(f) for f in msg["frames"][:60]]
+            if not frames or any(len(f) != 64 * 64 * 3 for f in frames):
+                raise ValueError("frames must be 64x64 RGB")
+            data = gifenc.encode(frames, int(msg.get("speed", 100)))
+        except (KeyError, TypeError, ValueError) as e:
+            return self._json(400, {"error": str(e)})
+        name = f"anim{next(self.gif_ids)}.gif"
+        self.gifs[name] = data
+        for old in list(self.gifs)[:-6]:
+            del self.gifs[old]
+        # the Pixoo must reach this server by the address the page used, unless that was localhost
+        host = self.headers.get("Host", "")
+        if not host or host.split(":")[0] in ("localhost", "127.0.0.1"):
+            host = f"{lan_ip()}:{self.server.server_address[1]}"
+        url = f"http://{host}/gif/{name}"
+        if self.tilly.running:
+            self.tilly.stop()
+        try:
+            reply = self.pixoo.send(json.dumps({"Command": "Device/PlayTFGif", "FileType": 2, "FileName": url}).encode())
+        except OSError as e:
+            return self._json(502, {"error": f"Pixoo unreachable: {e}"})
+        try:
+            reply = json.loads(reply)
+        except ValueError:
+            reply = None
+        # did the Pixoo come and fetch it? that's the real sign this method works on this unit
+        deadline = time.monotonic() + 8
+        while name not in self.gif_fetched and time.monotonic() < deadline:
+            time.sleep(.1)
+        return self._json(200, {"ok": True, "url": url, "bytes": len(data), "frames": len(frames),
+                                "fetched": name in self.gif_fetched, "reply": reply})
 
     def _tilly(self, action, msg):
         try:

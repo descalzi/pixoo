@@ -111,14 +111,27 @@ function showUploadSpeed() {
     : 'Send an animation to measure how fast your Pixoo takes frames.';
 }
 const sameFrame = (a, b) => { const x = a.data, y = b.data; if (x.length !== y.length) return false; for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false; return true; };
-function lightenFrames(list, speed) {
+const btn0 = () => $('send');
+function lightenFrames(list, speed, { lossless = false } = {}) {
   // lossless: if every frame repeats k times in a row, send each once and play k times slower
   const runs = []; for (let i = 0; i < list.length;) { let j = i; while (j + 1 < list.length && sameFrame(list[j + 1], list[i])) j++; runs.push(j - i + 1); i = j + 1; }
   const gcd = (a, b) => b ? gcd(b, a % b) : a, k = runs.reduce(gcd, 0);
   if (k > 1) { list = list.filter((_, i) => i % k === 0); speed *= k; }
   const mode = $('uploadMode').value, quick = mode === 'quick' || (mode === 'auto' && frameMs > SLOW_FRAME_MS);
-  if (quick && list.length > 20) { list = list.filter((_, i) => i % 2 === 0); speed *= 2; }
+  if (!lossless && quick && list.length > 20) { list = list.filter((_, i) => i % 2 === 0); speed *= 2; }
   return [list, speed];
+}
+$('sendMethod').value = store.get('sendMethod', 'frames');
+$('sendMethod').onchange = () => store.set('sendMethod', $('sendMethod').value);
+hasServer().then(ok => { $('sendMethodField').hidden = !ok; });
+// Experimental: the home server turns the frames into a GIF and the Pixoo downloads it.
+// Returns true if the Pixoo fetched it, false to fall back to frame by frame.
+async function sendAsGif(list, speed) {
+  const r = await fetch('api/gif', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ frames: list.map(frameToB64), speed }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'server error ' + r.status);
+  return !!j.fetched;
 }
 $('uploadMode').value = store.get('uploadMode', 'auto');
 $('uploadMode').onchange = () => store.set('uploadMode', $('uploadMode').value);
@@ -127,8 +140,26 @@ showUploadSpeed();
 let sending = false, overlayOn = false;
 async function sendFrames(list, speed, { quiet = false } = {}) {
   if (sending) return false; sending = true;
-  [list, speed] = lightenFrames(list.slice(0, 40), speed);
   const started = performance.now();
+  if ($('sendMethod').value === 'gif' && list.length > 1 && await hasServer()) {
+    btn0().disabled = true; btn0().setAttribute('aria-busy', 'true'); $('sendLabel').textContent = 'Sending GIF';
+    try {
+      if (overlayOn) { await pixoo('Draw/ClearHttpText'); overlayOn = false; }
+      const [gl, gs] = lightenFrames(list.slice(0, 40), speed, { lossless: true });
+      if (await sendAsGif(gl, gs)) {
+        setConn('ok', 'Connected');
+        if (!quiet) toast(`Sent ${gl.length} frames as one GIF in ${((performance.now() - started) / 1000).toFixed(1)} s`);
+        sending = false;
+        return true;
+      }
+      toast('The Pixoo didn\'t download the GIF, so sending frame by frame instead.', 'err');
+    } catch (e) {
+      toast('GIF sending failed (' + e.message + '), so sending frame by frame instead.', 'err');
+    } finally {
+      btn0().disabled = false; btn0().removeAttribute('aria-busy'); $('sendLabel').textContent = 'Send to Pixoo';
+    }
+  }
+  [list, speed] = lightenFrames(list.slice(0, 40), speed);
   const btn = $('send'), bar = $('progress');
   btn.disabled = true; btn.setAttribute('aria-busy', 'true');
   bar.hidden = list.length < 2;
@@ -640,6 +671,60 @@ async function getWeather() {
   weather = { t: Math.round(j.current.temperature_2m), h: j.current.relative_humidity_2m, kind: WMO(j.current.weather_code), hi: Math.round(j.daily.temperature_2m_max[0]), lo: Math.round(j.daily.temperature_2m_min[0]) };
   weatherAt = Date.now(); return weather;
 }
+let forecast = null, forecastAt = 0;
+async function getForecast() {
+  const lat = $('lat').value.trim(), lon = $('lon').value.trim();
+  if (!lat || !lon) return null;
+  if (forecast && Date.now() - forecastAt < 30 * 60e3) return forecast;
+  const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=7`);
+  const d = (await r.json()).daily;
+  forecast = d.time.map((day, i) => ({ day, kind: WMO(d.weather_code[i]), hi: Math.round(d.temperature_2m_max[i]), lo: Math.round(d.temperature_2m_min[i]) }));
+  forecastAt = Date.now(); return forecast;
+}
+function miniIcon(c, kind, x, y) {
+  // 8x7 versions of the weather icons for the forecast rows
+  const P = (a, b, col) => { c.fillStyle = col; c.fillRect(x + a, y + b, 1, 1); };
+  const cloud = col => { litDisc(c, x + 3, y + 3, 2, col, { bands: 3 }); litDisc(c, x + 5, y + 2, 2, col, { bands: 3 }); c.fillStyle = col; c.fillRect(x + 1, y + 4, 7, 1); };
+  if (kind === 'sun') { litDisc(c, x + 4, y + 3, 2, '#FFC83D', { light: .6, bands: 3 }); [[4, 0], [4, 6], [1, 3], [7, 3]].forEach(([a, b]) => P(a, b, '#FFB000')); return; }
+  if (kind === 'cloud') { litDisc(c, x + 2, y + 2, 2, '#FFC83D', { bands: 3 }); cloud('#E4E9F5'); return; }
+  if (kind === 'fog') { c.fillStyle = '#9AA3B8'; c.fillRect(x, y + 2, 8, 1); c.fillRect(x + 1, y + 4, 7, 1); c.fillRect(x, y + 6, 6, 1); return; }
+  cloud(kind === 'storm' ? '#9AA3B8' : '#D5DCEB');
+  if (kind === 'rain') [[2, 6], [5, 6]].forEach(([a, b]) => P(a, b, '#4FB3FF'));
+  if (kind === 'snow') [[2, 6], [4, 6], [6, 6]].forEach(([a, b]) => P(a, b, '#FFFFFF'));
+  if (kind === 'storm') { P(4, 5, '#FFD36B'); P(3, 6, '#FFD36B'); }
+}
+async function forecastFrame() {
+  const c = new OffscreenCanvas(S, S).getContext('2d');
+  const g = c.createLinearGradient(0, 0, 0, S); g.addColorStop(0, '#0B1033'); g.addColorStop(1, '#1D1444');
+  c.fillStyle = g; c.fillRect(0, 0, S, S);
+  let f = null; try { f = await getForecast(); } catch {}
+  if (!f) {
+    const m = $('lat').value.trim() ? 'NO FORECAST' : 'SET LOCATION';
+    fancyText(c, m, 32, 29, { big: false, top: '#FFB3B3', bottom: '#FF6B6B', align: 'center' });
+    return c.getImageData(0, 0, S, S);
+  }
+  const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  const min = Math.min(...f.map(d => d.lo)), max = Math.max(...f.map(d => d.hi)), span = Math.max(1, max - min);
+  const BAR0 = 36, BARW = 13;
+  // colour along the bar follows the temperature: cold blue, mild green, warm orange
+  const tempCol = t => t <= 5 ? [95, 180, 255] : t >= 25 ? [255, 122, 61] : t <= 15 ? mixRgb([95, 180, 255], [124, 240, 197], (t - 5) / 10) : mixRgb([124, 240, 197], [255, 200, 74], (t - 15) / 10);
+  f.slice(0, 7).forEach((d, i) => {
+    const y = 1 + i * 9;
+    if (i % 2) { c.fillStyle = 'rgba(255,255,255,.05)'; c.fillRect(0, y - 1, S, 9); }
+    const name = i === 0 ? 'TOD' : days[new Date(d.day + 'T12:00').getDay()];
+    fancyText(c, name, 1, y + 1, i === 0 ? { big: false, top: '#FFE29A', bottom: '#FFB000' } : { big: false, top: '#FFFFFF', bottom: '#BFC9E6' });
+    miniIcon(c, d.kind, 13, y);
+    fancyText(c, String(d.lo), 33, y + 1, { big: false, top: '#BFE6FF', bottom: '#5FB4FF', align: 'right' });
+    c.fillStyle = 'rgba(255,255,255,.14)'; c.fillRect(BAR0, y + 3, BARW, 1);
+    const a = BAR0 + Math.round((d.lo - min) / span * (BARW - 1)), b = BAR0 + Math.round((d.hi - min) / span * (BARW - 1));
+    for (let x = a; x <= b; x++) {
+      const col = tempCol(d.lo + (d.hi - d.lo) * (b > a ? (x - a) / (b - a) : 1));
+      c.fillStyle = rgbStr(col); c.fillRect(x, y + 2, 1, 1); c.fillStyle = rgbStr(mixRgb(col, [0, 0, 0], .3)); c.fillRect(x, y + 3, 1, 1);
+    }
+    fancyText(c, String(d.hi), 51, y + 1, { big: false, top: '#FFE29A', bottom: '#FF9A3D' });
+  });
+  return c.getImageData(0, 0, S, S);
+}
 function skyBackground(c, now) {
   // the background follows the time of day: deep night, dawn, daytime blue, sunset
   const h = now.getHours() + now.getMinutes() / 60;
@@ -686,10 +771,10 @@ async function startLive(kind) {
   liveKind = kind; stageOwner = 'info';
   const withWeather = kind === 'weather';
   $$('[data-display]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.display === kind)));
-  setStage(withWeather ? 'Clock and weather' : 'Clock', 'Updates every minute');
+  setStage(kind === 'forecast' ? 'Week forecast' : withWeather ? 'Clock and weather' : 'Clock', 'Updates every minute');
   $('liveBar').hidden = false; $('liveText').textContent = 'Updating the Pixoo every minute';
   const tick = async () => {
-    const f = await infoFrame(withWeather);
+    const f = kind === 'forecast' ? await forecastFrame() : await infoFrame(withWeather);
     if (stageOwner === 'info') { frames = [f]; frameIdx = 0; }
     const ok = await sendFrames([f], 1000, { quiet: true });
     $('liveText').textContent = ok ? `Updated at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Last update failed, retrying next minute';

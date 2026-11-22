@@ -24,7 +24,7 @@ Sections: Effects, Characters, Draw, Info, Play and Settings (Pixoo address, con
 - **Characters**: Tilly Tock (an alarm-clock character who waves and winks) and a cheeky Santa whose trousers fall down. Tilly has a *live face* mode: the Pixoo itself draws the real time and temperature above her and keeps them current, so nothing has to stay running.
   - **Living Tilly** (needs the home server): press *Start on home server* and the server plays her scenes all day. She idles, dances, wanders off ("back soon") and comes back; yawns in the evening and sleeps from 23:00 to 07:00; holds an umbrella when it rains; wears a scarf and shivers at 5 °C or below or in snow; puts on sunglasses at 27 °C or above. The time and temperature are drawn above her in the 3D font and refreshed every minute. Weather comes from the location in Info. The page renders the scenes once and uploads them (kept in `data/`); the server resumes Tilly after a restart, and stops her when you send something else from the page.
 - **Draw**: a 64×64 pixel editor with palette, fill, eraser and multiple frames.
-- **Info displays**: a clock, or a clock with weather from [Open-Meteo](https://open-meteo.com) (free, no key). Updates every minute while the page is open.
+- **Info displays**: a clock, a clock with weather, or a week forecast (seven rows: day, icon, low, range bar, high), all from [Open-Meteo](https://open-meteo.com) (free, no key). Updates every minute while the page is open.
 - **Play**: three arcade games with the shaded pixel look: Snake, Rock Patrol (an asteroid-style shooter) and Lantern Maze (a maze chase). Play with the arrow keys and Space, by swiping, or with the on-screen pad. Each game runs in step with the Pixoo, so no move is dropped however few frames a second it manages.
 
 You can also open `web/index.html` directly on a computer on the same wifi. Phone browsers usually block
@@ -39,6 +39,7 @@ that, so use the server there.
 ## Pixoo API notes
 
 - **Upload speed.** The device takes one frame per request, and some units need up to a second per frame, so a 40-frame animation can take 40 s. That is the device, not the network. The page measures it (Settings, *Animation uploads*), sends repeated frames only once (playing them slower, so nothing changes visually), and in *Automatic* mode sends at most 20 frames when the device is slower than 0.4 s per frame. Living Tilly does the same, and on a slow device it lets the Pixoo draw the time and temperature itself instead of re-uploading every minute. `/api/health` reports the measured `frame_ms`.
+- **GIF link (experimental).** With Settings → *How to send animations* → *As one GIF*, the page posts all frames to `POST /api/gif`; the server encodes a GIF (`gifenc.py`, stdlib), serves it at `/gif/animN.gif`, and sends `Device/PlayTFGif` with `FileType: 2` and that link. The server waits up to 8 s to see the Pixoo download the file; if it doesn't, the page falls back to frame by frame.
 
 | Firmware | Endpoint | Reply |
 |---|---|---|

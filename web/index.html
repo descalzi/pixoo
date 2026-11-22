@@ -180,6 +180,9 @@
         <button type="button" class="choice" role="radio" aria-checked="false" data-display="weather">
           <strong>Clock and weather</strong><span>Time, current temperature, today's low and high, humidity.</span>
         </button>
+        <button type="button" class="choice" role="radio" aria-checked="false" data-display="forecast">
+          <strong>Week forecast</strong><span>Seven days: weather icon, low and high, and a bar showing each day's range.</span>
+        </button>
       </div>
       <fieldset class="group">
         <legend>Weather location</legend>
@@ -263,6 +266,14 @@
             <option value="quick">Quick: up to 20 frames, about twice as fast to send</option>
           </select>
           <small id="uploadHelp">The Pixoo takes each frame one at a time. Automatic switches to Quick when your Pixoo is slow to accept them.</small>
+        </div>
+        <div class="field" id="sendMethodField" hidden>
+          <label for="sendMethod">How to send animations</label>
+          <select id="sendMethod" aria-describedby="sendMethodHelp">
+            <option value="frames">Frame by frame (works on every Pixoo)</option>
+            <option value="gif">As one GIF from the home server (experimental, faster)</option>
+          </select>
+          <small id="sendMethodHelp">With GIF, the home server makes a GIF file and the Pixoo downloads it in one go. If your Pixoo doesn't fetch it, the page falls back to frame by frame.</small>
         </div>
         <p class="hint" id="uploadSpeed"></p>
       </fieldset>
