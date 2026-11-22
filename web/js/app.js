@@ -392,7 +392,7 @@ function addTile(grid, kind, name, draw, n, onPick) {
 }
 for (const name of Object.keys(EFFECTS)) {
   addTile($('effects'), 'effect', name, EFFECTS[name], 20,
-    () => { stopLive(); stopGame(); currentEffect = name; store.set('effect', name); renderEffect(name); markEffect(); });
+    () => { stopGame(); currentEffect = name; store.set('effect', name); renderEffect(name); markEffect(); });
 }
 function drawThumbs() {
   thumbIdx++;
@@ -456,7 +456,7 @@ async function sendCharacter() {
 for (const name of Object.keys(CHARACTERS)) {
   const ch = CHARACTERS[name];
   addTile($('characters'), 'character', name, ch.draw, ch.frames,
-    () => { stopLive(); stopGame(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
+    () => { stopGame(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
 }
 
 // Living Tilly: the home server plays her scenes on a schedule (server.py + tilly_player.py)
@@ -518,7 +518,8 @@ $('frames').onchange = () => { if (stageOwner === 'effect') renderEffect(current
 $('speed').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
 
 $('send').onclick = () => {
-  if (stageOwner === 'info') return startLive(liveKind);
+  if (stageOwner === 'info') return startLive(infoPick);
+  stopLive(); // whatever is sent now replaces the minute-by-minute info display
   if (stageOwner === 'character') return sendCharacter();
   const list = stageOwner === 'draw' ? drawFrames : frames;
   sendFrames(list, stageOwner === 'play' ? 1000 : stageSpeed());
@@ -532,10 +533,11 @@ function go() {
   route = next; document.body.dataset.route = next;
   $$('[data-view]').forEach(v => v.hidden = v.dataset.view !== next);
   $$('.nav a, .topbar-settings').forEach(a => a.dataset.area === next ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current'));
-  if (next === 'effects' && stageOwner !== 'effect' && !liveTimer) { renderEffect(currentEffect); }
-  if (next === 'characters' && stageOwner !== 'character' && !liveTimer) { renderCharacter(currentChar); }
-  if (next === 'draw' && !liveTimer) { stageOwner = 'draw'; setDrawPlaying(false); updateFrameLabel(); }
-  if (next === 'play' && !liveTimer) showGame();
+  if (next === 'effects' && stageOwner !== 'effect') { renderEffect(currentEffect); }
+  if (next === 'characters' && stageOwner !== 'character') { renderCharacter(currentChar); }
+  if (next === 'draw' && stageOwner !== 'draw') { stageOwner = 'draw'; setDrawPlaying(false); updateFrameLabel(); }
+  if (next === 'play' && stageOwner !== 'play') showGame();
+  if (next === 'info' && stageOwner !== 'info') previewInfo(infoPick);
   markEffect();
 }
 addEventListener('hashchange', () => { go(); $('main').focus({ preventScroll: true }); });
@@ -583,7 +585,7 @@ function paint(x, y) {
 let down = false, last = null;
 cv.addEventListener('pointerdown', e => {
   if (route !== 'draw') return;
-  stopLive(); stageOwner = 'draw'; setDrawPlaying(false);
+  stageOwner = 'draw'; setDrawPlaying(false);
   down = true; cv.setPointerCapture(e.pointerId);
   last = cellFromEvent(e); paint(...last); if (tool === 'fill') down = false;
 });
@@ -802,16 +804,27 @@ async function infoFrame(withWeather) {
   }
   return c.getImageData(0, 0, S, S);
 }
+const INFO_TITLES = { clock: 'Clock', weather: 'Clock and weather', forecast: 'Week forecast', today: 'Today and the week' };
+const infoFrameFor = kind => kind === 'today' ? todayFrame() : kind === 'forecast' ? forecastFrame() : infoFrame(kind === 'weather');
+let infoPick = INFO_TITLES[store.get('infoKind', '')] ? store.get('infoKind') : 'weather';
+// Picking a display only shows it on the stage; nothing goes to the Pixoo until Send.
+async function previewInfo(kind) {
+  infoPick = kind; store.set('infoKind', kind); stageOwner = 'info';
+  $$('[data-display]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.display === kind)));
+  const live = liveTimer && liveKind === kind;
+  setStage(INFO_TITLES[kind], live ? 'On the Pixoo, updating every minute' : 'Press Send to show it on the Pixoo');
+  const f = await infoFrameFor(kind);
+  if (stageOwner === 'info' && infoPick === kind) { frames = [f]; frameIdx = 0; }
+}
 async function startLive(kind) {
   stopLive(); stopGame();
-  liveKind = kind; stageOwner = 'info';
-  const withWeather = kind === 'weather';
+  liveKind = kind; infoPick = kind; stageOwner = 'info';
   $$('[data-display]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.display === kind)));
-  setStage(kind === 'today' ? 'Today and the week' : kind === 'forecast' ? 'Week forecast' : withWeather ? 'Clock and weather' : 'Clock', 'Updates every minute');
+  setStage(INFO_TITLES[kind], 'On the Pixoo, updating every minute');
   $('liveBar').hidden = false; $('liveText').textContent = 'Updating the Pixoo every minute';
   const tick = async () => {
-    const f = kind === 'today' ? await todayFrame() : kind === 'forecast' ? await forecastFrame() : await infoFrame(withWeather);
-    if (stageOwner === 'info') { frames = [f]; frameIdx = 0; }
+    const f = await infoFrameFor(kind);
+    if (stageOwner === 'info' && infoPick === kind) { frames = [f]; frameIdx = 0; }
     const ok = await sendFrames([f], 1000, { quiet: true });
     $('liveText').textContent = ok ? `Updated at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Last update failed, retrying next minute';
   };
@@ -823,9 +836,8 @@ async function startLive(kind) {
 function stopLive() {
   if (liveTimer) clearTimeout(liveTimer);
   liveTimer = null; liveKind = null; $('liveBar').hidden = true;
-  $$('[data-display]').forEach(b => b.setAttribute('aria-checked', 'false'));
 }
-$$('[data-display]').forEach(b => b.onclick = () => startLive(b.dataset.display));
+$$('[data-display]').forEach(b => b.onclick = () => previewInfo(b.dataset.display));
 $('stopLive').onclick = () => { stopLive(); toast('Stopped updating the Pixoo.'); };
 $('locate').onclick = () => {
   if (!navigator.geolocation) return toast('This browser can\'t share your location. Type latitude and longitude instead.', 'err');
@@ -919,7 +931,7 @@ function pickGame(name) {
 for (const name of Object.keys(GAMES)) {
   let demo = null;
   addTile($('games'), 'game', name, t => { if (t === 0) demo = GAMES[name].make(); demo.autopilot(); demo.step(); return demo.frame(); }, 48,
-    () => { stopLive(); pickGame(name); showGame(); });
+    () => { pickGame(name); showGame(); });
 }
 $('gameBtn').onclick = () => {
   if (gameRunning) return stopGame();
