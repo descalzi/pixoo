@@ -1,6 +1,7 @@
 # Pixoo Studio
 
 Animations, a pixel editor, info displays and live games for the Divoom Pixoo 64, controlled from a web page.
+Design follows the uiux library; see `DESIGN.md` and `PRODUCT.md`.
 
 ## Quick start (home server, works on phones)
 
@@ -13,9 +14,11 @@ Open `http://<server-ip>:8080` on any phone or computer on the same wifi.
 The server hosts the page and forwards commands to the Pixoo, so browser restrictions on calling
 local devices don't apply.
 
-Options: `python3 server.py --pixoo 192.168.4.192 --port 8080`
+Options: `python3 server.py --pixoo 192.168.4.192 --port 8080`. If the port is taken, the server tries the next free one and prints the address to open.
 
 ## What's in the page
+
+Sections: Effects, Draw, Info, Play and Settings (Pixoo address, connection method, theme). The connection status sits in the top bar.
 
 - **Effects**: plasma, aurora, fire, rainbow tunnel, starfield, matrix rain, bouncing heart (up to 40 frames, adjustable speed).
 - **Draw**: a 64×64 pixel editor with palette, fill, eraser and multiple frames.
