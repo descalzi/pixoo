@@ -38,6 +38,8 @@ that, so use the server there.
 
 ## Pixoo API notes
 
+- **Upload speed.** The device takes one frame per request, and some units need up to a second per frame, so a 40-frame animation can take 40 s. That is the device, not the network. The page measures it (Settings, *Animation uploads*), sends repeated frames only once (playing them slower, so nothing changes visually), and in *Automatic* mode sends at most 20 frames when the device is slower than 0.4 s per frame. Living Tilly does the same, and on a slow device it lets the Pixoo draw the time and temperature itself instead of re-uploading every minute. `/api/health` reports the measured `frame_ms`.
+
 | Firmware | Endpoint | Reply |
 |---|---|---|
 | Original Pixoo 64 | `POST http://IP:80/post` | `error_code` |

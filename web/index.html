@@ -254,6 +254,19 @@
         <p class="result" id="testResult" role="status"></p>
       </fieldset>
       <fieldset class="group">
+        <legend>Animation uploads</legend>
+        <div class="field">
+          <label for="uploadMode">Frames per animation</label>
+          <select id="uploadMode" aria-describedby="uploadHelp">
+            <option value="auto">Automatic (recommended)</option>
+            <option value="full">Full: up to 40 frames, smoothest</option>
+            <option value="quick">Quick: up to 20 frames, about twice as fast to send</option>
+          </select>
+          <small id="uploadHelp">The Pixoo takes each frame one at a time. Automatic switches to Quick when your Pixoo is slow to accept them.</small>
+        </div>
+        <p class="hint" id="uploadSpeed"></p>
+      </fieldset>
+      <fieldset class="group">
         <legend>Appearance</legend>
         <div class="segmented" role="radiogroup" aria-label="Theme">
           <button type="button" role="radio" data-theme-choice="system" aria-checked="true">System</button>

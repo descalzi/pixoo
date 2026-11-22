@@ -28,6 +28,7 @@ class Pixoo:
         self.ip, self.url = ip, None
         self.lock = threading.Lock()  # the device handles one request at a time
         self.last = 0.0
+        self.frame_ms = None  # how long the device takes to accept one animation frame (moving average)
 
     def _post(self, url, body, timeout=5):
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
@@ -51,14 +52,19 @@ class Pixoo:
             wait = 0.03 - (time.monotonic() - self.last)
             if wait > 0:
                 time.sleep(wait)
+            t0 = time.monotonic()
             try:
                 if not self.url:
                     self.detect()
                 try:
-                    return self._post(self.url, body)
+                    reply = self._post(self.url, body)
                 except OSError:
                     self.detect()  # device may have rebooted or changed firmware
-                    return self._post(self.url, body)
+                    reply = self._post(self.url, body)
+                if b"Draw/SendHttpGif" in body[:80]:
+                    ms = (time.monotonic() - t0) * 1000
+                    self.frame_ms = ms if self.frame_ms is None else self.frame_ms * .8 + ms * .2
+                return reply
             finally:
                 self.last = time.monotonic()
 
@@ -69,7 +75,9 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/api/health":
-            return self._json(200, {"ok": True, "pixoo": self.pixoo.ip, "endpoint": self.pixoo.url, "tilly": True})
+            fm = self.pixoo.frame_ms
+            return self._json(200, {"ok": True, "pixoo": self.pixoo.ip, "endpoint": self.pixoo.url, "tilly": True,
+                                    "frame_ms": round(fm) if fm else None})
         if self.path == "/api/tilly/status":
             return self._json(200, self.tilly.status())
         return super().do_GET()

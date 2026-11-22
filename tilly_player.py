@@ -110,6 +110,44 @@ def stamp_band(frame_b64, hhmm, temp):
     return base64.b64encode(bytes(buf)).decode()
 
 
+# ---- making uploads lighter -----------------------------------------------------------
+SLOW_MS = 400  # above this per frame, the device is too slow to re-upload a scene every minute
+
+
+def collapse_runs(frames, speed):
+    """Lossless: if every frame is repeated k times in a row, keep one of each and play k times slower."""
+    runs, i = [], 0
+    while i < len(frames):
+        j = i
+        while j + 1 < len(frames) and frames[j + 1] == frames[i]:
+            j += 1
+        runs.append(j - i + 1)
+        i = j + 1
+    from math import gcd
+    k = 0
+    for r in runs:
+        k = gcd(k, r)
+    if k <= 1:
+        return frames, speed
+    return frames[::k], speed * k
+
+
+def lighten(frames, speed, loop, slow):
+    frames, speed = collapse_runs(frames, speed)
+    if slow and loop and len(frames) > 20:  # half the frames, same timing, for slow devices
+        frames, speed = frames[::2], speed * 2
+    return frames, speed
+
+
+# The device draws these itself in slow mode, so the clock stays right without re-uploading.
+OVERLAY = [
+    {"TextId": 1, "type": 5, "x": 2, "y": 2, "dir": 0, "font": 18, "TextWidth": 30, "Textheight": 6,
+     "speed": 100, "align": 1, "color": "#FFD36B"},
+    {"TextId": 2, "type": 17, "x": 34, "y": 2, "dir": 0, "font": 18, "TextWidth": 28, "Textheight": 6,
+     "speed": 100, "align": 3, "color": "#8FD3FF"},
+]
+
+
 # ---- weather --------------------------------------------------------------------------
 RAIN = set(range(51, 68)) | {80, 81, 82, 95, 96, 99}
 SNOW = set(range(71, 78)) | {85, 86}
@@ -160,6 +198,7 @@ class TillyPlayer:
         self.config = {}
         self.weather, self.weather_at, self.weather_error = None, 0.0, None
         self.now_playing = None
+        self.overlay_on = False
         self.mood = None
         self.error = None
         self._stop = threading.Event()
@@ -222,6 +261,12 @@ class TillyPlayer:
             self._thread.join(timeout=10)
         self._thread = None
         self.now_playing = None
+        if self.overlay_on:  # take the device-drawn clock off again
+            try:
+                self.pixoo.send(b'{"Command":"Draw/ClearHttpText"}')
+            except OSError:
+                pass
+            self.overlay_on = False
         if save:
             self._save_state(False)
 
@@ -230,7 +275,12 @@ class TillyPlayer:
             "running": self.running, "scenes": len(self.scenes), "mood": self.mood,
             "scene": self.now_playing and self.now_playing[0], "sky": self.now_playing and self.now_playing[1],
             "weather": self.weather, "weather_error": self.weather_error, "error": self.error, "config": self.config,
+            "slow": self.slow, "frame_ms": round(self.pixoo.frame_ms) if self.pixoo.frame_ms else None,
         }
+
+    @property
+    def slow(self):
+        return bool(self.pixoo.frame_ms and self.pixoo.frame_ms > SLOW_MS)
 
     # -- the loop
     def _refresh_weather(self):
@@ -251,16 +301,28 @@ class TillyPlayer:
         now = datetime.now()
         hhmm = now.strftime("%H:%M")
         temp = self.weather["t"] if self.weather else None
-        frames = sc["frames"][:1] if first_frame_only else sc["frames"]
+        slow = self.slow
+        frames, speed = lighten(sc["frames"], sc["speed"], sc["loop"], slow)
+        if first_frame_only:
+            frames = frames[:1]
         send = lambda body: self.pixoo.send(json.dumps(body).encode())
+        if self.overlay_on and not slow:
+            send({"Command": "Draw/ClearHttpText"})
+            self.overlay_on = False
         send({"Command": "Draw/ResetHttpGifId"})
         for i, f in enumerate(frames):
             if self._stop.is_set():
                 return sc
             send({"Command": "Draw/SendHttpGif", "PicNum": len(frames), "PicWidth": S, "PicOffset": i,
-                  "PicID": 1, "PicSpeed": sc["speed"], "PicData": stamp_band(f, hhmm, temp)})
+                  "PicID": 1, "PicSpeed": speed, "PicData": f if slow else stamp_band(f, hhmm, temp)})
+        if slow:  # let the device keep the time and temperature current
+            if self.config.get("lat"):
+                send({"Command": "Sys/LogAndLat", "Latitude": self.config["lat"], "Longitude": self.config["lon"]})
+            send({"Command": "Draw/ClearHttpText"})
+            send({"Command": "Draw/SendHttpItemList", "ItemList": OVERLAY})
+            self.overlay_on = True
         self.now_playing = (name, sky)
-        return sc
+        return {"frames": frames, "speed": speed}
 
     def _run(self, stop):
         step = 0
@@ -283,6 +345,8 @@ class TillyPlayer:
                     stop.wait(len(sc["frames"]) * sc["speed"] / 1000)
                     step += 1
                     continue
+                if self.slow:  # each upload takes a while, so stay on a scene for longer
+                    seconds = max(seconds * 3, 120)
                 end = time.time() + seconds
                 while not stop.is_set():
                     left = end - time.time()
@@ -298,7 +362,8 @@ class TillyPlayer:
                     self._refresh_weather()
                     if mood_for(datetime.now(), self.weather)[0] != plan_key:
                         break
-                    self._push(name, sky)
+                    if not self.slow:  # in slow mode the device draws the time itself
+                        self._push(name, sky)
             except OSError as e:
                 self.error = f"Pixoo unreachable: {e}"
                 stop.wait(20)

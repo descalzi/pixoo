@@ -101,10 +101,34 @@ function frameToB64(imgData) {
 }
 const UNREACHABLE = 'Can\'t reach the Pixoo. Check the address in Settings and that you\'re on the same wifi.';
 
+// The device accepts one frame per request, and some units take up to a second each.
+// Measure how long frames take, and send fewer of them when it's slow.
+const SLOW_FRAME_MS = 400;
+let frameMs = Number(store.get('frameMs', '0')) || 0;
+function showUploadSpeed() {
+  $('uploadSpeed').textContent = frameMs
+    ? `Your Pixoo last took about ${(frameMs / 1000).toFixed(frameMs < 1000 ? 2 : 1)} s per frame, so 40 frames take about ${Math.round(frameMs * 40 / 1000)} s.`
+    : 'Send an animation to measure how fast your Pixoo takes frames.';
+}
+const sameFrame = (a, b) => { const x = a.data, y = b.data; if (x.length !== y.length) return false; for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false; return true; };
+function lightenFrames(list, speed) {
+  // lossless: if every frame repeats k times in a row, send each once and play k times slower
+  const runs = []; for (let i = 0; i < list.length;) { let j = i; while (j + 1 < list.length && sameFrame(list[j + 1], list[i])) j++; runs.push(j - i + 1); i = j + 1; }
+  const gcd = (a, b) => b ? gcd(b, a % b) : a, k = runs.reduce(gcd, 0);
+  if (k > 1) { list = list.filter((_, i) => i % k === 0); speed *= k; }
+  const mode = $('uploadMode').value, quick = mode === 'quick' || (mode === 'auto' && frameMs > SLOW_FRAME_MS);
+  if (quick && list.length > 20) { list = list.filter((_, i) => i % 2 === 0); speed *= 2; }
+  return [list, speed];
+}
+$('uploadMode').value = store.get('uploadMode', 'auto');
+$('uploadMode').onchange = () => store.set('uploadMode', $('uploadMode').value);
+showUploadSpeed();
+
 let sending = false, overlayOn = false;
 async function sendFrames(list, speed, { quiet = false } = {}) {
   if (sending) return false; sending = true;
-  list = list.slice(0, 40);
+  [list, speed] = lightenFrames(list.slice(0, 40), speed);
+  const started = performance.now();
   const btn = $('send'), bar = $('progress');
   btn.disabled = true; btn.setAttribute('aria-busy', 'true');
   bar.hidden = list.length < 2;
@@ -114,13 +138,17 @@ async function sendFrames(list, speed, { quiet = false } = {}) {
     await pixoo('Draw/ResetHttpGifId'); // prevents the device freezing after many pushes
     for (let i = 0; i < list.length; i++) {
       $('sendLabel').textContent = list.length > 1 ? `Sending ${i + 1} of ${list.length}` : 'Sending';
+      const t0 = performance.now();
       await pixoo('Draw/SendHttpGif', { PicNum: list.length, PicWidth: S, PicOffset: i, PicID: 1, PicSpeed: speed, PicData: frameToB64(list[i]) });
+      const ms = performance.now() - t0; frameMs = frameMs ? frameMs * .8 + ms * .2 : ms;
       const pct = Math.round((i + 1) / list.length * 100);
       bar.firstElementChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
-      await pause(30); // the device's web server is single-threaded; give it a breather
+      if (detected !== 'api') await pause(30); // the device's web server is single-threaded (the home server paces for us)
     }
     setConn('ok', 'Connected');
-    if (!quiet) toast(list.length > 1 ? `Sent ${list.length} frames to the Pixoo` : 'Sent to the Pixoo');
+    store.set('frameMs', String(Math.round(frameMs))); showUploadSpeed();
+    const secs = Math.round((performance.now() - started) / 1000);
+    if (!quiet) toast(list.length > 1 ? `Sent ${list.length} frames to the Pixoo in ${secs} s` : 'Sent to the Pixoo');
     return true;
   } catch (e) {
     setConn('err', 'Not connected');
