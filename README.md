@@ -45,7 +45,7 @@ that, so use the server there.
 - `GET /api/flights/status` returns the closest plane, its route and the rendered card (`frame`, base64 RGB); `POST /api/flights/config` `{radius, auto, auto_nm, auto_ft}`, `POST /api/flights/show`, `POST /api/flights/stop`. Settings are kept in `data/flights.json`.
 - Anything the page draws stops the card and pauses auto takeover for 5 minutes; starting a character on the server stops it too.
 
-Every request the server sends to the Pixoo, with its reply, is logged to `data/pixoo.log`; the last 300 are at `http://<server>:8080/api/log`. Useful when the device freezes or restarts.
+Every request the server sends to the Pixoo is printed in the server console as it goes out (`PIXOO >`) and when the reply comes back (`PIXOO <`), and logged to `data/pixoo.log`; the last 300 are at `http://<server>:8080/api/log`. Useful when the device freezes or restarts.
 
 ### Living Tilly API (server.py)
 

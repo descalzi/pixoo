@@ -33,13 +33,21 @@ ENDPOINTS = (":80/post", ":9000/divoom_api")
 SETTLE_S = 1.5  # pause after an animation upload is cut short, before the device gets anything else
 
 
-# Every request to the device, with its reply, goes to data/pixoo.log and the last 300 to
-# GET /api/log, so a crash on the device can be traced to the exact request sequence.
+# Every request to the device, with its reply, is printed to the console and goes to
+# data/pixoo.log, and the last 300 lines to GET /api/log, so a crash on the device can be traced to the exact request sequence.
 DEVICE_LOG = collections.deque(maxlen=300)
 device_log = logging.getLogger("pixoo")
 
 
-def log_request(body, reply, err, seconds):
+def _log(line):
+    line = f"{datetime.now().strftime('%H:%M:%S.%f')[:-3]} {line}"
+    DEVICE_LOG.append(line)
+    device_log.info(line)
+    print("PIXOO " + line, flush=True)  # flushed straight away, so the last line survives a crash
+
+
+def log_out(url, body):
+    """Logged before the request goes out: if the device dies on it, this is the last line."""
     try:
         msg = json.loads(body)
     except ValueError:
@@ -48,11 +56,13 @@ def log_request(body, reply, err, seconds):
     if data is not None:
         msg["PicData"] = f"<{len(data)} chars>"
     shown = {k: v for k, v in msg.items() if k != "Command"}
+    port = url.split(":")[2].split("/")[0] if url.count(":") >= 2 else "80"
+    _log(f"> [{threading.current_thread().name}] :{port} {msg.get('Command')} {json.dumps(shown)[:300] if shown else ''}")
+
+
+def log_back(reply, err, seconds):
     result = f"ERROR {err!r}" if err else (reply or b"")[:160].decode("utf-8", "replace")
-    line = (f"{datetime.now().strftime('%H:%M:%S.%f')[:-3]} [{threading.current_thread().name}] "
-            f"{msg.get('Command')} {json.dumps(shown)[:300] if shown else ''} -> {result} ({seconds * 1000:.0f} ms)")
-    DEVICE_LOG.append(line)
-    device_log.info(line)
+    _log(f"< {result} ({seconds * 1000:.0f} ms)")
 
 
 class Pixoo:
@@ -92,9 +102,19 @@ class Pixoo:
         return self.use_gif and self.gif_ok is True
 
     def _post(self, url, body, timeout=5):
-        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.read()
+        """Every request to the device goes through here, and is logged on the way out and back."""
+        log_out(url, body)
+        t0, reply, err = time.monotonic(), None, None
+        try:
+            req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                reply = r.read()
+            return reply
+        except Exception as e:
+            err = e
+            raise
+        finally:
+            log_back(reply, err, time.monotonic() - t0)
 
     def detect(self):
         for suffix in ENDPOINTS:
@@ -110,17 +130,6 @@ class Pixoo:
 
     def send(self, body):
         frame = b"Draw/SendHttpGif" in body[:80]
-        t_start, reply, err = time.monotonic(), None, None
-        try:
-            reply = self._send(body, frame)
-            return reply
-        except Exception as e:
-            err = e
-            raise
-        finally:
-            log_request(body, reply, err, time.monotonic() - t_start)
-
-    def _send(self, body, frame):
         with self.lock:
             # after an animation was cut short, give the Pixoo time to settle before the next one
             wait = max(0.03 - (time.monotonic() - self.last), SETTLE_S - (time.monotonic() - self.cut_at))
@@ -309,6 +318,7 @@ class Handler(SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
+        threading.current_thread().name = "page"  # how this request shows in the device log
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         try:
             msg = json.loads(body or b"{}")
