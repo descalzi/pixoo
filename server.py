@@ -216,6 +216,12 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(400, {"error": str(e)})
         return self._json(200, self.flights.status())
 
+    def end_headers(self):
+        # make browsers check for a newer page/script every time, so an update shows up after a
+        # plain reload instead of mixing a new page with old cached scripts
+        self.send_header("Cache-Control", "no-cache")
+        super().end_headers()
+
     def _json(self, code, obj):
         data = json.dumps(obj).encode()
         self.send_response(code)
