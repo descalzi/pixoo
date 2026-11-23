@@ -481,32 +481,32 @@ for (const name of Object.keys(CHARACTERS)) {
     () => { stopGame(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
 }
 
-// Living characters: the home server plays their scenes on a schedule (server.py + tilly_player.py)
+// Living characters: the home server plays their scenes on a schedule (server.py + tilly_player.py).
+// The characters it can play are listed in LIVING (tilly.js).
 let tillyPoll = null, tillyState = null;
-const LIVING_ABOUT = {
-  'Tilly Tock': 'Your home server keeps Tilly busy all day. She dances, wanders off and comes back, gets sleepy at night and reacts to the weather where you live. The time and temperature sit above her.',
-  'Cheeky Santa': 'Your home server gives Santa a new routine every half hour: losing his trousers, a big belly laugh, or juggling presents. The time and temperature sit above him.',
-};
-const short = name => name.split(' ').pop() === 'Tock' ? 'Tilly' : 'Santa';
-const MOODS = { asleep: 'asleep', sleepy: 'sleepy', rainy: 'sheltering from the rain', cold: 'shivering in the cold',
-  hot: 'keeping cool in the heat', playful: 'out and about' };
+const LIVING_ABOUT = Object.fromEntries(Object.entries(LIVING).map(([k, v]) => [k, v.about]));
+const short = name => LIVING[name]?.short || name;
 async function tillyApi(path, body) {
   const r = await fetch('api/tilly/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || 'server error ' + r.status);
   return j;
 }
-const SANTA_MOODS = { santa_trousers: 'losing his trousers', santa_hohoho: 'laughing', santa_juggle: 'juggling presents' };
+$('mixChars').checked = store.get('mixChars', '0') === '1';
+$('mixChars').onchange = () => { store.set('mixChars', $('mixChars').checked ? '1' : '0'); if (tillyState) showTilly(tillyState); };
 function showTilly(st) {
   tillyState = st;
+  const mix = $('mixChars').checked, names = Object.keys(LIVING).map(short);
   $('tillyHint').textContent = st.running
     ? 'Sending anything else takes over the Pixoo and stops this.'
-    : `Press Send and the home server keeps ${short(currentChar) === 'Tilly' ? 'her' : 'him'} live on the Pixoo, even with this page closed.`;
+    : mix ? `Press Send and ${names.slice(0, -1).join(', ')} and ${names.at(-1)} take turns on the Pixoo, a different one every half hour. Tilly takes the night shift.`
+    : `Press Send and the home server keeps ${LIVING[currentChar]?.pronoun || 'it'} live on the Pixoo, even with this page closed.`;
   $('tillyBar').hidden = !st.running;
   if (st.running) {
-    const w = st.weather ? ` · ${st.weather.t}°C` : '';
-    const doing = st.character === 'Cheeky Santa' ? SANTA_MOODS[st.scene] || 'starting' : MOODS[st.mood] || 'starting';
-    $('tillyText').textContent = st.error ? 'Waiting for the Pixoo' : `${short(st.character || 'Tilly Tock')} is ${doing}${w}`;
+    const who = st.current || st.character, w = st.weather ? ` · ${st.weather.t}°C` : '';
+    const doing = LIVING[who] ? LIVING[who].doing(st) : 'on now';
+    const lead = st.character === 'mix' ? 'Taking turns: ' : '';
+    $('tillyText').textContent = st.error ? 'Waiting for the Pixoo' : `${lead}${short(who)} is ${doing}${w}`;
   }
   clearTimeout(tillyPoll);
   if (st.running && route === 'characters') tillyPoll = setTimeout(tillyStatus, 20000);
@@ -516,23 +516,26 @@ async function tillyStatus() {
 }
 async function startOnServer(who) {
   const btn = $('send'), bar = $('tillyProgress');
+  const mix = $('mixChars').checked, cast = mix ? Object.keys(LIVING) : [who];
   btn.disabled = true; btn.setAttribute('aria-busy', 'true'); $('sendLabel').textContent = 'Starting';
   try {
     // the server has no canvas, so the page renders the scenes once and hands them over;
-    // skipped when the server already has this character's current scenes
-    const have = (await tillyApi('status')).pack || {};
-    if (have.character !== who || have.version !== SCENES_VERSION) {
+    // skipped for characters whose current scenes the server already has
+    const have = (await tillyApi('status')).packs || {};
+    const todo = cast.filter(c => have[c] !== SCENES_VERSION);
+    for (const [i, c] of todo.entries()) {
       bar.hidden = false;
-      const scenes = await characterScenePack(who, p => {
-        const pct = Math.round(p * 100);
+      const scenes = await characterScenePack(c, p => {
+        const pct = Math.round((i + p) / todo.length * 100);
         bar.firstElementChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
       });
-      await tillyApi('scenes', { scenes, character: who, version: SCENES_VERSION });
+      await tillyApi('scenes', { scenes, character: c, version: SCENES_VERSION });
     }
-    const st = await tillyApi('start', { character: who });
+    const st = await tillyApi('start', { character: mix ? 'mix' : who });
     overlayOn = false; stopLive();
     showTilly(st);
-    toast($('lat').value.trim() || who !== 'Tilly Tock' ? `${short(who)} is live on the Pixoo` : 'Tilly is on. Set a weather location in Settings so she can react to the weather.');
+    toast(mix ? 'The characters are taking turns on the Pixoo'
+      : $('lat').value.trim() || who !== 'Tilly Tock' ? `${short(who)} is live on the Pixoo` : 'Tilly is on. Set a weather location in Settings so she can react to the weather.');
   } catch (e) {
     toast('Could not start on the home server: ' + e.message, 'err');
   } finally {

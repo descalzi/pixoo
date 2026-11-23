@@ -303,7 +303,8 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if action == "scenes":
                 meta = {k: msg[k] for k in ("character", "version") if k in msg}
-                return self._json(200, {"ok": True, "scenes": self.tilly.upload(msg.get("scenes", []), meta)})
+                return self._json(200, {"ok": True, "scenes": self.tilly.upload(msg.get("scenes", []), meta),
+                                        "packs": self.tilly.packs})
             if action == "start":
                 self.flights.stop()  # the character takes the display
                 self.shows.stop()

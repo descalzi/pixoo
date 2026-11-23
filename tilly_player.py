@@ -9,6 +9,7 @@ clock stays right. Standard library only.
 """
 import base64
 import json
+import random
 import threading
 import time
 import urllib.request
@@ -163,17 +164,55 @@ def fetch_weather(lat, lon):
     return {"t": round(cur["temperature_2m"]), "kind": kind}
 
 
-# ---- choosing what Tilly does -----------------------------------------------------------
-SANTA = ["santa_trousers", "santa_hohoho", "santa_juggle"]
+# ---- choosing what a character does ------------------------------------------------------
+# Characters are whatever packs the page has uploaded. Tilly has her own day (tilly_plan); every
+# other character simply gets one of its scenes per half hour, so a new character needs nothing
+# here: draw its scenes in the page and it joins in.
+MIX = "mix"
+SLOT_MIN = 30
 
 
-def mood_for(now, weather, character="Tilly Tock"):
-    """The plan for this moment: a list of (scene, sky, seconds) steps to cycle through.
-    seconds=None means play the scene once (walking off or back on)."""
-    if character == "Cheeky Santa":
-        # a different routine every half hour, so he's not always doing the same thing
-        slot = (now.hour * 60 + now.minute) // 30
-        return f"santa{slot}", [(SANTA[slot % len(SANTA)], "snow", 1800)]
+def _slot(now):
+    return (now.hour * 60 + now.minute) // SLOT_MIN
+
+
+def rotate_plan(character, scenes, now):
+    """One of the character's scenes per half hour, in an order shuffled for each day."""
+    names = sorted(scenes)
+    order = random.Random(f"{now.date()}-{character}").sample(names, len(names))
+    name, sky = order[_slot(now) % len(order)]
+    return f"{character}:{name}", [(name, sky, SLOT_MIN * 60)]
+
+
+def pick_character(now, available):
+    """Mix mode: who's on for this half hour. Characters take turns in rounds, each round in a new
+    random order, so everyone gets turns and nobody is on twice in a row. Tilly takes the night
+    shift (she has a proper sleeping scene)."""
+    available = sorted(available)
+    if not available:
+        return None
+    h = now.hour + now.minute / 60
+    if (h >= 23 or h < 7) and "Tilly Tock" in available:
+        return "Tilly Tock"
+    n, slot = len(available), _slot(now)
+
+    def order(cycle):  # a fresh shuffle for every round, so the pattern doesn't repeat
+        o = random.Random(f"{now.date()}-{cycle}").sample(available, n)
+        if cycle > 0 and n > 1 and o[0] == order(cycle - 1)[-1]:
+            o = o[1:] + o[:1]  # never the same character twice in a row
+        return o
+    return order(slot // n)[slot % n]
+
+
+def mood_for(now, weather, character="Tilly Tock", scenes=None):
+    """(key, plan) for this moment: plan is a list of (scene, sky, seconds) steps to cycle through,
+    seconds=None meaning play once (walking off or back on). scenes: {(name, sky)} of the character."""
+    if character != "Tilly Tock":
+        return rotate_plan(character, scenes or {("idle", "day")}, now)
+    return tilly_plan(now, weather)
+
+
+def tilly_plan(now, weather):
     h = now.hour + now.minute / 60
     night = h < 7 or h >= 20
     sky = "night" if night else "day"
@@ -200,8 +239,10 @@ class TillyPlayer:
         self.pixoo = pixoo
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
-        self.scenes_file, self.state_file = self.dir / "tilly_scenes.json", self.dir / "tilly_state.json"
-        self.scenes = {}
+        self.scenes_dir, self.state_file = self.dir / "scenes", self.dir / "tilly_state.json"
+        self.scenes = {}      # (character, name, sky) -> scene
+        self.packs = {}       # character -> version of its uploaded scenes
+        self.current = None   # the character on now (differs from config in mix mode)
         self.config = {}
         self.weather, self.weather_at, self.weather_error = None, 0.0, None
         self.now_playing = None
@@ -214,12 +255,12 @@ class TillyPlayer:
 
     # -- persistence
     def _load(self):
-        self.pack = {}
-        try:
-            self._set_scenes(json.loads(self.scenes_file.read_text()))
-            self.pack = json.loads((self.dir / "tilly_pack.json").read_text())
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
+        for f in sorted(self.scenes_dir.glob("*.json")) if self.scenes_dir.exists() else []:
+            try:
+                d = json.loads(f.read_text())
+                self._add_pack(d["character"], d["version"], d["scenes"])
+            except (OSError, ValueError, KeyError, TypeError):
+                pass
         try:
             state = json.loads(self.state_file.read_text())
             self.config = state.get("config", {})
@@ -231,23 +272,31 @@ class TillyPlayer:
     def _save_state(self, running):
         self.state_file.write_text(json.dumps({"running": running, "config": self.config}))
 
-    def _set_scenes(self, pack):
+    def _add_pack(self, character, version, pack):
         scenes = {}
         for sc in pack:
             frames = sc["frames"][:40]
             if not frames or any(len(base64.b64decode(f)) != S * S * 3 for f in frames[:1]):
                 raise ValueError(f"bad frames in {sc.get('name')}")
-            scenes[(sc["name"], sc["sky"])] = {"speed": int(sc["speed"]), "loop": bool(sc["loop"]), "frames": frames}
+            scenes[(character, sc["name"], sc["sky"])] = {"speed": int(sc["speed"]), "loop": bool(sc["loop"]), "frames": frames}
         if not scenes:
             raise ValueError("no scenes")
-        self.scenes = scenes
+        self.scenes = {k: v for k, v in self.scenes.items() if k[0] != character}
+        self.scenes.update(scenes)
+        self.packs[character] = version
 
     def upload(self, pack, meta=None):
-        self._set_scenes(pack)
-        self.scenes_file.write_text(json.dumps(pack))
-        self.pack = meta or {}
-        (self.dir / "tilly_pack.json").write_text(json.dumps(self.pack))
-        return len(self.scenes)
+        """Store one character's scenes (other characters' scenes are kept)."""
+        meta = meta or {}
+        character, version = str(meta.get("character", "Tilly Tock"))[:60], str(meta.get("version", ""))[:40]
+        self._add_pack(character, version, pack)
+        self.scenes_dir.mkdir(parents=True, exist_ok=True)
+        slug = "".join(ch if ch.isalnum() else "_" for ch in character.lower())
+        (self.scenes_dir / f"{slug}.json").write_text(json.dumps({"character": character, "version": version, "scenes": pack}))
+        return len([k for k in self.scenes if k[0] == character])
+
+    def characters(self):
+        return sorted(self.packs)
 
     # -- control
     @property
@@ -256,7 +305,9 @@ class TillyPlayer:
 
     def start(self, config):
         if not self.scenes:
-            raise ValueError("Upload Tilly's scenes first")
+            raise ValueError("Upload the characters' scenes first")
+        if config.get("character", "Tilly Tock") not in (MIX, *self.packs):
+            raise ValueError(f"No scenes for {config.get('character')} yet")
         self.stop(save=False)
         self.config = {k: config[k] for k in ("lat", "lon", "character") if config.get(k) not in (None, "")}
         self.weather_at = 0
@@ -275,7 +326,12 @@ class TillyPlayer:
                 self._save_state(True)
 
     def _mood(self, now):
-        return mood_for(now, self.weather, self.config.get("character", "Tilly Tock"))
+        who = self.config.get("character", "Tilly Tock")
+        if who == MIX:
+            who = pick_character(now, self.packs) or "Tilly Tock"
+        self.current = who
+        key, plan = mood_for(now, self.weather, who, {(n, s) for c, n, s in self.scenes if c == who})
+        return f"{who}|{key}", plan
 
     def stop(self, save=True):
         self._stop.set()
@@ -294,8 +350,9 @@ class TillyPlayer:
 
     def status(self):
         return {
-            "running": self.running, "scenes": len(self.scenes), "pack": self.pack, "mood": self.mood,
-            "character": self.config.get("character", "Tilly Tock"),
+            "running": self.running, "scenes": len(self.scenes), "packs": self.packs,
+            "mood": self.mood and self.mood.split("|", 1)[-1],
+            "character": self.config.get("character", "Tilly Tock"), "current": self.current,
             "scene": self.now_playing and self.now_playing[0], "sky": self.now_playing and self.now_playing[1],
             "weather": self.weather, "weather_error": self.weather_error, "error": self.error, "config": self.config,
             "slow": self.slow, "frame_ms": round(self.pixoo.frame_ms) if self.pixoo.frame_ms else None,
@@ -317,8 +374,9 @@ class TillyPlayer:
             self.weather_error = str(e)
 
     def _scene(self, name, sky):
-        return self.scenes.get((name, sky)) or self.scenes.get((name, "day")) or self.scenes.get(("idle", sky)) \
-            or next(iter(self.scenes.values()))
+        who = self.current or "Tilly Tock"
+        return self.scenes.get((who, name, sky)) or self.scenes.get((who, name, "day")) \
+            or self.scenes.get((who, "idle", sky)) or next(iter(self.scenes.values()))
 
     def _push(self, name, sky, first_frame_only=False):
         sc = self._scene(name, sky)

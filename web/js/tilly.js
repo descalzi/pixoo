@@ -259,17 +259,31 @@ function drawTillyScene(name, sky, t, n) {
   return c.getImageData(0, 0, CS, CS);
 }
 
-// Every scene/sky combination the server may play for a character, as raw RGB frames in base64.
+// Characters the home server can keep live. To add one: draw it in characters.js, add it to
+// CHARACTERS, then add an entry here listing its scenes. The server needs no changes: it gives a
+// new character one of its scenes per half hour, and includes it when characters take turns.
+//   scenes(): [[sceneName, sky, { frames, speed, loop?, draw(t) }], ...]  (names unique per character)
+//   doing(status): a few words for the status line
+const LIVING = {
+  'Tilly Tock': {
+    short: 'Tilly', pronoun: 'her',
+    about: 'Your home server keeps Tilly busy all day. She dances, wanders off and comes back, gets sleepy at night and reacts to the weather where you live. The time and temperature sit above her.',
+    scenes: () => Object.entries(TILLY_SCENES).flatMap(([name, sc]) => sc.skies.map(sky => [name, sky, { ...sc, draw: t => drawTillyScene(name, sky, t, sc.frames) }])),
+    doing: st => ({ asleep: 'asleep', sleepy: 'sleepy', rainy: 'sheltering from the rain', cold: 'shivering in the cold',
+      hot: 'keeping cool in the heat', playful: 'out and about' })[(st.mood || '').split(':').pop()] || 'on now',
+  },
+  'Cheeky Santa': {
+    short: 'Santa', pronoun: 'him',
+    about: 'Your home server gives Santa a new routine every half hour: losing his trousers, a big belly laugh, or juggling presents. The time and temperature sit above him.',
+    scenes: () => SANTA_SCENES.map(scene => ['santa_' + scene, 'snow', { frames: 40, speed: 160, draw: t => drawSanta(t, 40, { scene, live: true }) }]),
+    doing: st => ({ santa_trousers: 'losing his trousers', santa_hohoho: 'laughing', santa_juggle: 'juggling presents' })[st.scene] || 'on now',
+  },
+};
 // Bump when any scene drawing changes, so the home server gets the new frames.
 const SCENES_VERSION = '2026-11-23b';
 async function characterScenePack(character, onProgress) {
   const scenes = [];
-  const jobs = [];
-  if (character === 'Cheeky Santa') {
-    for (const scene of SANTA_SCENES) jobs.push(['santa_' + scene, 'snow', { frames: 40, speed: 160, draw: t => drawSanta(t, 40, { scene, live: true }) }]);
-  } else {
-    for (const [name, sc] of Object.entries(TILLY_SCENES)) for (const sky of sc.skies) jobs.push([name, sky, { ...sc, draw: t => drawTillyScene(name, sky, t, sc.frames) }]);
-  }
+  const jobs = LIVING[character].scenes();
   for (const [j, [name, sky, sc]] of jobs.entries()) {
     const frames = [];
     for (let t = 0; t < sc.frames; t++) frames.push(frameToB64(sc.draw(t)));
