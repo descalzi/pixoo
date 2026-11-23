@@ -20,6 +20,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import gifenc
+from flights import FlightTracker
 from tilly_player import TillyPlayer
 
 # Original firmware: port 80 /post. Newer units ("Pixoo-64 II"): port 9000 /divoom_api.
@@ -75,6 +76,7 @@ class Pixoo:
 class Handler(SimpleHTTPRequestHandler):
     pixoo: Pixoo = None
     tilly: TillyPlayer = None
+    flights: FlightTracker = None
     gifs = {}  # recent animations the Pixoo can download, by file name
     gif_ids = itertools.count(1)
     gif_fetched = set()  # names the Pixoo has actually downloaded
@@ -95,6 +97,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, self.tilly.status())
         if self.path == "/api/config":
             return self._json(200, self._config())
+        if self.path == "/api/flights/status":
+            return self._json(200, self.flights.status())
         if self.path.startswith("/gif/") and self.path[5:] in self.gifs:
             data = self.gifs[self.path[5:]]
             self.gif_fetched.add(self.path[5:])
@@ -113,7 +117,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(400, {"error": "body must be JSON"})
         if self.path.startswith("/api/tilly/"):
             return self._tilly(self.path[len("/api/tilly/"):], msg)
+        if self.path.startswith("/api/flights/"):
+            return self._flights(self.path[len("/api/flights/"):], msg)
         if self.path == "/api/gif":
+            self.flights.page_drew()
             return self._gif(msg)
         if self.path == "/api/config":
             cfg = self._config()
@@ -123,12 +130,16 @@ class Handler(SimpleHTTPRequestHandler):
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
             self.config_file.write_text(json.dumps(cfg))
             self.tilly.set_location(cfg)
+            self.flights.updated = None  # look around the new home on the next poll
+            self.flights.wake.set()
             return self._json(200, cfg)
         if self.path != "/api":
             return self._json(404, {"error": "not found"})
-        # anything the page draws takes over the screen from Living Tilly
-        if self.tilly.running and str(msg.get("Command", "")).startswith("Draw/"):
-            self.tilly.stop()
+        # anything the page draws takes over the screen from Living Tilly and Flights
+        if str(msg.get("Command", "")).startswith("Draw/"):
+            if self.tilly.running:
+                self.tilly.stop()
+            self.flights.page_drew()
         try:
             reply = self.pixoo.send(body)
         except OSError as e:
@@ -180,6 +191,7 @@ class Handler(SimpleHTTPRequestHandler):
             if action == "scenes":
                 return self._json(200, {"ok": True, "scenes": self.tilly.upload(msg.get("scenes", []))})
             if action == "start":
+                self.flights.stop()  # Tilly takes the display
                 cfg = self._config()  # fall back to the shared weather location from Settings
                 self.tilly.start({"lat": cfg.get("lat"), "lon": cfg.get("lon"), **{k: v for k, v in msg.items() if v}})
             elif action == "stop":
@@ -189,6 +201,20 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError, KeyError, TypeError) as e:
             return self._json(400, {"error": str(e)})
         return self._json(200, self.tilly.status())
+
+    def _flights(self, action, msg):
+        try:
+            if action == "config":
+                self.flights.configure(msg)
+            elif action == "show":
+                self.flights.show(msg)
+            elif action == "stop":
+                self.flights.stop()
+            else:
+                return self._json(404, {"error": "not found"})
+        except (ValueError, KeyError, TypeError) as e:
+            return self._json(400, {"error": str(e)})
+        return self._json(200, self.flights.status())
 
     def _json(self, code, obj):
         data = json.dumps(obj).encode()
@@ -228,6 +254,8 @@ def main():
     web = here / "web"
     Handler.tilly = TillyPlayer(Handler.pixoo, here / "data")  # resumes Living Tilly if it was on
     Handler.config_file = here / "data" / "config.json"
+    Handler.flights = FlightTracker(Handler.pixoo, Handler.tilly, here / "data",
+                                    location=lambda: Handler._config(Handler))  # resumes Flights if it was on
     handler = partial(Handler, directory=str(web))
     # If the port is taken (8080 often is), try the next ones instead of failing.
     for port in range(args.port, args.port + 20):

@@ -354,7 +354,7 @@ const EFFECTS = {
 // ---------- stage: preview loop ----------
 let frames = [], frameIdx = 0, lastTick = 0;
 let route = 'effects';
-let stageOwner = 'effect';   // what's on the stage: effect | character | draw | info | play
+let stageOwner = 'effect';   // what's on the stage: effect | character | draw | info | flights | play
 const speed = () => Math.max(20, Math.min(1000, +$('speed').value || 80));
 const frameCount = () => Math.max(1, Math.min(40, +$('frames').value || 40));
 
@@ -529,16 +529,103 @@ $('tillyStop').onclick = async () => {
 $('frames').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
 $('speed').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
 
+// ---------- flights: the home server tracks the closest plane and draws its card (flights.py) ----------
+let flightPoll = null, flightsBlocked = false;
+async function flightsApi(path, body) {
+  const r = await fetch('api/flights/' + path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || 'server error ' + r.status);
+  return j;
+}
+function b64Image(b64) {
+  const bin = atob(b64), img = new ImageData(S, S);
+  for (let i = 0, j = 0; i < bin.length; i += 3, j += 4) {
+    img.data[j] = bin.charCodeAt(i); img.data[j + 1] = bin.charCodeAt(i + 1); img.data[j + 2] = bin.charCodeAt(i + 2); img.data[j + 3] = 255;
+  }
+  return img;
+}
+const fmtNum = n => n == null ? '–' : Number(n).toLocaleString();
+function showFlights(st) {
+  const c = st.config, p = st.plane, r = st.route;
+  if (document.activeElement !== $('flightRadius')) $('flightRadius').value = String(c.radius);
+  $('flightAuto').checked = !!c.auto;
+  if (document.activeElement !== $('flightAutoNm')) $('flightAutoNm').value = c.auto_nm;
+  if (document.activeElement !== $('flightAutoFt')) $('flightAutoFt').value = c.auto_ft;
+  const home = st.home;
+  $('flightsPlace').innerHTML = '';
+  $('flightsPlace').append(home ? `Looking around ${home.place || `${home.lat}, ${home.lon}`}. ` : 'No home location yet. ',
+    Object.assign(document.createElement('a'), { href: '#settings', textContent: home ? 'Change' : 'Set it in Settings' }));
+  const facts = $('flightFacts'); facts.innerHTML = '';
+  const fact = (k, v, wide) => {
+    const d = document.createElement('div'); if (wide) d.className = 'wide';
+    d.append(Object.assign(document.createElement('dt'), { textContent: k }), Object.assign(document.createElement('dd'), { textContent: v }));
+    facts.append(d);
+  };
+  if (p) {
+    const o = r && r.origin, d = r && r.destination;
+    fact('Flight', p.callsign || p.reg || p.hex);
+    fact('Airline', (r && r.airline) || '–');
+    fact('Route', o && d ? `${o.city || o.iata} (${o.iata}) to ${d.city || d.iata} (${d.iata})` : 'Not known', true);
+    fact('Aircraft', [p.type, p.reg].filter(Boolean).join(' · ') || '–');
+    fact('Altitude', p.alt == null ? '–' : `${fmtNum(p.alt)} ft${p.vrate > 300 ? ', climbing' : p.vrate < -300 ? ', descending' : ''}`);
+    fact('Speed', p.speed == null ? '–' : `${p.speed} kt (${Math.round(p.speed * 1.852)} km/h)`);
+    fact('Distance', `${p.dist} nm (${(p.dist * 1.852).toFixed(1)} km) ${['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(p.bearing / 45) % 8]}`);
+  }
+  const when = st.updated ? new Date(st.updated * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : null;
+  $('flightsNote').textContent = st.error ? `Can't get flight data right now (${st.error}). Trying again every 10 seconds.`
+    : !home ? '' : !when ? 'Looking for planes…'
+    : `${st.count} plane${st.count === 1 ? '' : 's'} within ${c.radius} nm${p ? '' : ', none in the air right now'}. From ${st.feed}, updated ${when}.`;
+  const onPixoo = st.showing || st.takeover;
+  $('flightsBar').hidden = !onPixoo;
+  $('flightsText').textContent = st.takeover ? 'On the Pixoo while this plane is close' : 'On the Pixoo, updating every 10 seconds';
+  if (stageOwner === 'flights') {
+    if (st.frame) { frames = [b64Image(st.frame)]; frameIdx = 0; }
+    setStage(p ? (p.callsign || p.reg || 'Flights') : 'Flights', onPixoo ? 'On the Pixoo now' : 'Press Send to show it on the Pixoo');
+  }
+  clearTimeout(flightPoll);
+  if (route === 'flights') flightPoll = setTimeout(flightsStatus, 10000);
+}
+async function flightsStatus() {
+  if (!(await hasServer())) {
+    $('flightsPlace').textContent = 'Flights runs on your home server. Open this page from the server (python3 server.py) to use it.';
+    if (route === 'flights') { $('send').disabled = true; flightsBlocked = true; }
+    return;
+  }
+  try { showFlights(await flightsApi('status')); } catch {}
+}
+function enterFlights() {
+  stageOwner = 'flights'; frames = [new ImageData(S, S)]; frameIdx = 0;
+  setStage('Flights', 'Looking for planes…');
+  flightsStatus();
+}
+async function sendFlights() {
+  try {
+    if (overlayOn) { await pixoo('Draw/ClearHttpText'); overlayOn = false; }
+    showFlights(await flightsApi('show', {}));
+    toast('The closest plane is on the Pixoo now');
+  } catch (e) { toast('Could not show flights: ' + e.message, 'err'); }
+}
+const flightCfg = body => flightsApi('config', body).then(showFlights).catch(e => toast('Could not save: ' + e.message, 'err'));
+$('flightRadius').onchange = () => flightCfg({ radius: +$('flightRadius').value });
+$('flightAuto').onchange = () => flightCfg({ auto: $('flightAuto').checked });
+$('flightAutoNm').onchange = () => flightCfg({ auto_nm: +$('flightAutoNm').value || 5 });
+$('flightAutoFt').onchange = () => flightCfg({ auto_ft: +$('flightAutoFt').value || 10000 });
+$('flightsStop').onclick = async () => {
+  try { showFlights(await flightsApi('stop', {})); toast('Flights stopped'); }
+  catch (e) { toast('Could not stop flights: ' + e.message, 'err'); }
+};
+
 $('send').onclick = () => {
   if (stageOwner === 'info') return startLive(infoPick);
   stopLive(); // whatever is sent now replaces the minute-by-minute info display
+  if (stageOwner === 'flights') return sendFlights();
   if (stageOwner === 'character') return sendCharacter();
   const list = stageOwner === 'draw' ? drawFrames : frames;
   sendFrames(list, stageOwner === 'play' ? 1000 : stageSpeed());
 };
 
 // ---------- routing: every section has its own URL ----------
-const ROUTES = ['effects', 'characters', 'draw', 'info', 'play', 'settings'];
+const ROUTES = ['effects', 'characters', 'draw', 'info', 'flights', 'play', 'settings'];
 function go() {
   const next = ROUTES.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'effects';
   if (next !== 'play') stopGame();
@@ -550,6 +637,8 @@ function go() {
   if (next === 'draw' && stageOwner !== 'draw') { stageOwner = 'draw'; setDrawPlaying(false); updateFrameLabel(); }
   if (next === 'play' && stageOwner !== 'play') showGame();
   if (next === 'info' && stageOwner !== 'info') previewInfo(infoPick);
+  if (next === 'flights' && stageOwner !== 'flights') enterFlights();
+  if (next !== 'flights') { clearTimeout(flightPoll); if (flightsBlocked) { $('send').disabled = false; flightsBlocked = false; } }
   markEffect();
 }
 addEventListener('hashchange', () => { go(); $('main').focus({ preventScroll: true }); });

@@ -20,7 +20,7 @@ Options: `python3 server.py --pixoo 192.168.4.192 --port 8080`. If the port is t
 
 **Weather location** lives in Settings: search for your town (Open-Meteo geocoding) or type coordinates. It's saved on the home server (`data/config.json`, `GET/POST /api/config`) so every device shares it. Browsers only allow "Use my location" on https pages, so that button only shows where it can work.
 
-Sections: Effects, Characters, Draw, Info, Play and Settings (Pixoo address, connection method, theme). The connection status sits in the top bar.
+Sections: Effects, Characters, Draw, Info, Flights, Play and Settings (Pixoo address, connection method, theme). The connection status sits in the top bar.
 
 - **Effects**: plasma, aurora, fire, rainbow tunnel, starfield, matrix rain, bouncing heart (up to 40 frames, adjustable speed).
 - **Characters**: Tilly Tock (an alarm-clock character who waves and winks) and a cheeky Santa whose trousers fall down, who also laughs and juggles presents. Both have a *live face* mode: the Pixoo itself draws the real time and temperature above her and keeps them current, so nothing has to stay running.
@@ -28,10 +28,18 @@ Sections: Effects, Characters, Draw, Info, Play and Settings (Pixoo address, con
   - **Living Tilly** (needs the home server): press *Start on home server* and the server plays her scenes all day. She idles, dances, wanders off ("back soon") and comes back; yawns in the evening and sleeps from 23:00 to 07:00; holds an umbrella when it rains; wears a scarf and shivers at 5 °C or below or in snow; puts on sunglasses at 27 °C or above. The time and temperature are drawn above her in the 3D font and refreshed every minute. Weather comes from the location in Settings. The page renders the scenes once and uploads them (kept in `data/`); the server resumes Tilly after a restart, and stops her when you send something else from the page.
 - **Draw**: a 64×64 pixel editor with palette, fill, eraser and multiple frames.
 - **Info displays**: a clock, a clock with weather, a week forecast (seven rows: day, icon, low, range bar, high), or today in focus with the next six days along the bottom, all from [Open-Meteo](https://open-meteo.com) (free, no key). Updates every minute while the page is open.
+- **Flights** (needs the home server): the plane flying closest to home as a flight card: airline logo and callsign, route (e.g. STN > MAD with city names), altitude with a climb/descend marker, aircraft type, distance with an arrow pointing where it is, and speed. Send keeps it on the Pixoo, refreshed every 10 s, with the page closed. Optionally it takes over the Pixoo by itself when a plane is closer and lower than your limits, then goes back to the character that was playing (or the Pixoo's own clock) once it has gone. Home is the location from Settings.
 - **Play**: three arcade games with the shaded pixel look: Snake, Rock Patrol (an asteroid-style shooter) and Lantern Maze (a maze chase). Play with the arrow keys and Space, by swiping, or with the on-screen pad. Each game runs in step with the Pixoo, so no move is dropped however few frames a second it manages.
 
 You can also open `web/index.html` directly on a computer on the same wifi. Phone browsers usually block
 that, so use the server there.
+
+### Flights (flights.py)
+
+- Positions: [airplanes.live](https://airplanes.live) `GET /v2/point/{lat}/{lon}/{radius_nm}`, falling back to adsb.lol and adsb.fi (same readsb JSON). Free, no key; polled every 10 s, and only while the page is open, the card is on the Pixoo, or auto takeover is on.
+- Route and airline: [adsbdb.com](https://www.adsbdb.com) `GET /v0/callsign/{callsign}`, cached for 6 h. Logos: `pics.avs.io/64/64/{IATA}.png`, else `Jxck-S/airline-logos` by ICAO code, cached in `data/logos/` (an empty file means none was found).
+- `GET /api/flights/status` returns the closest plane, its route and the rendered card (`frame`, base64 RGB); `POST /api/flights/config` `{radius, auto, auto_nm, auto_ft}`, `POST /api/flights/show`, `POST /api/flights/stop`. Settings are kept in `data/flights.json`.
+- Anything the page draws stops the card and pauses auto takeover for 5 minutes; starting a character on the server stops it too.
 
 ### Living Tilly API (server.py)
 

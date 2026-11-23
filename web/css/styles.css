@@ -10,7 +10,7 @@
     --bg:#15122B; --surface:#1E1A3A; --surface-2:#262150; --border:#2F2A55; --border-strong:#ADA6D6;
     --fg:#F1EEFF; --fg-muted:#ADA6D6;
     --accent:#8B7BFF; --on-accent:#120F26;
-    --fill-pink:#FF8FC7; --fill-mint:#7CF0C5; --fill-gold:#FFD36B; --fill-sky:#8FD3FF; --on-fill:#120F26;
+    --fill-pink:#FF8FC7; --fill-mint:#7CF0C5; --fill-gold:#FFD36B; --fill-sky:#8FD3FF; --fill-coral:#FFA987; --on-fill:#120F26;
     --ok:#4CC38A; --warn:#E8B341; --crit:#FF7A72;
     --stage-bg:#0E0C1E;
 
@@ -173,7 +173,13 @@
 
   .live-bar { display: flex; align-items: center; gap: var(--s-3); padding: var(--s-2) var(--s-2) var(--s-2) var(--s-4);
     border-radius: var(--radius-md); background: var(--surface-2); }
-  .live-bar #liveText, .live-bar #tillyText { flex: 1; font-weight: 600; }
+  .live-bar #liveText, .live-bar #tillyText, .live-bar #flightsText { flex: 1; font-weight: 600; }
+  .flight-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s-3) var(--s-4); margin: 0; }
+  .flight-facts > div { min-width: 0; }
+  .flight-facts dt { color: var(--fg-muted); font-size: var(--text-sm); }
+  .flight-facts dd { margin: 0; font-family: var(--font-display); font-size: var(--text-base); font-weight: 700; overflow-wrap: anywhere; }
+  .flight-facts .wide { grid-column: 1 / -1; }
+  .flight-facts:empty { display: none; }
   .field-inline-2 { display: flex; gap: var(--s-2); }
   .field-inline-2 input { flex: 1; min-width: 0; }
   details.more summary { cursor: pointer; padding: 12px 0; font-weight: 600; font-size: var(--text-sm); color: var(--fg-muted); }
@@ -248,7 +254,7 @@
   /* bottom navigation on phones */
   .nav {
     position: fixed; z-index: var(--z-sticky); left: 0; right: 0; bottom: 0;
-    display: grid; grid-template-columns: repeat(5, 1fr);
+    display: grid; grid-template-columns: repeat(6, 1fr);
     padding: var(--s-1) var(--s-2) calc(var(--s-1) + env(safe-area-inset-bottom));
     background: var(--surface); border-top: 1px solid var(--border);
   }
@@ -256,7 +262,7 @@
     display: grid; justify-items: center; align-content: center; gap: 2px; min-height: 56px;
     color: var(--fg-muted); text-decoration: none; font-size: var(--text-xs); font-weight: 600; border-radius: var(--radius-sm);
   }
-  .nav a .icon { width: 22px; height: 22px; padding: 2px 14px; box-sizing: content-box; border-radius: var(--radius-full); transition: background var(--dur-2) var(--ease-out); }
+  .nav a .icon { width: 22px; height: 22px; padding: 2px 12px; box-sizing: content-box; border-radius: var(--radius-full); transition: background var(--dur-2) var(--ease-out); }
   .nav a:hover { color: var(--fg); }
   .nav a[aria-current="page"] { color: var(--fg); }
   .nav .nav-settings { display: none; }
@@ -268,6 +274,7 @@
   [data-area="characters"], body[data-route="characters"] { --area: var(--fill-sky); }
   [data-area="draw"], body[data-route="draw"] { --area: var(--fill-mint); }
   [data-area="info"], body[data-route="info"] { --area: var(--fill-gold); }
+  [data-area="flights"], body[data-route="flights"] { --area: var(--fill-coral); }
   [data-area="play"], body[data-route="play"] { --area: var(--accent); }
   [data-area="settings"], body[data-route="settings"] { --area: var(--accent); }
   /* play and settings use the accent itself, so text on them takes --on-accent */

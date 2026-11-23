@@ -44,6 +44,7 @@
     <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol>
     <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s7-6.1 7-11.5A7 7 0 0 0 5 9.5C5 14.9 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
     <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><path d="M12 19.5h.01"/></symbol>
+    <symbol id="i-plane" viewBox="0 0 24 24"><path d="M10.5 3.5c0-.8.7-1.5 1.5-1.5s1.5.7 1.5 1.5V9l7.5 4.5V16l-7.5-2.5V18l2.5 2v2L12 21l-4 1v-2l2.5-2v-4.5L3 16v-2.5L10.5 9z"/></symbol>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
   </defs>
 </svg>
@@ -65,6 +66,7 @@
     <a href="#characters" data-area="characters"><svg class="icon" aria-hidden="true"><use href="#i-character"/></svg><span>Characters</span></a>
     <a href="#draw" data-area="draw"><svg class="icon" aria-hidden="true"><use href="#i-draw"/></svg><span>Draw</span></a>
     <a href="#info" data-area="info"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span>Info</span></a>
+    <a href="#flights" data-area="flights"><svg class="icon" aria-hidden="true"><use href="#i-plane"/></svg><span>Flights</span></a>
     <a href="#play" data-area="play"><svg class="icon" aria-hidden="true"><use href="#i-play"/></svg><span>Play</span></a>
     <a href="#settings" data-area="settings" class="nav-settings"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span>Settings</span></a>
   </nav>
@@ -193,6 +195,45 @@
         <span id="liveText">Live</span>
         <button class="btn btn-ghost" id="stopLive" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop updating</button>
       </div>
+    </section>
+
+    <section class="view" id="view-flights" data-view="flights" aria-labelledby="h-flights" hidden>
+      <h2 id="h-flights">Flights</h2>
+      <p class="lede">The plane flying closest to home: airline, route, aircraft, height and how far away it is. Your home server keeps it current, so this page can be closed.</p>
+      <p class="hint" id="flightsPlace"></p>
+      <dl class="flight-facts" id="flightFacts" aria-live="polite"></dl>
+      <p class="hint" id="flightsNote"></p>
+      <div class="live-bar" id="flightsBar" hidden>
+        <span class="live-dot" aria-hidden="true"></span>
+        <span id="flightsText">On the Pixoo</span>
+        <button class="btn btn-ghost" id="flightsStop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
+      </div>
+      <div class="field">
+        <label for="flightRadius">Look for planes within</label>
+        <select id="flightRadius">
+          <option value="5">5 nautical miles (9 km)</option>
+          <option value="10">10 nautical miles (19 km)</option>
+          <option value="15">15 nautical miles (28 km)</option>
+          <option value="25">25 nautical miles (46 km)</option>
+          <option value="50">50 nautical miles (93 km)</option>
+        </select>
+      </div>
+      <fieldset class="group">
+        <legend>Show automatically</legend>
+        <label class="check"><input type="checkbox" id="flightAuto"> Take over the Pixoo when a plane flies close and low</label>
+        <div class="row">
+          <div class="field">
+            <label for="flightAutoNm">Closer than</label>
+            <div class="suffix"><input id="flightAutoNm" type="number" inputmode="decimal" min="0.5" max="50" step="0.5" value="5"><span>nm</span></div>
+          </div>
+          <div class="field">
+            <label for="flightAutoFt">Lower than</label>
+            <div class="suffix"><input id="flightAutoFt" type="number" inputmode="numeric" min="500" max="60000" step="500" value="10000"><span>ft</span></div>
+          </div>
+        </div>
+        <small class="hint">When the plane has gone, the Pixoo goes back to your character if one was playing on the home server, otherwise to its own clock. It waits 5 minutes after you send anything from this page.</small>
+      </fieldset>
+      <small class="hint">Positions from airplanes.live (adsb.lol and adsb.fi as backups), routes from adsbdb.com, logos from pics.avs.io. All free, no account needed.</small>
     </section>
 
     <section class="view" id="view-play" data-view="play" aria-labelledby="h-play" hidden>
