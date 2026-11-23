@@ -434,7 +434,8 @@ class Handler(SimpleHTTPRequestHandler):
         elif i.running and i.error:
             error = i.error
         return {"on": on, "upload": up, "error": error,
-                "flights_auto": bool(fc.get("auto")), "auto_nm": fc.get("auto_nm"), "auto_ft": fc.get("auto_ft")}
+                "flights_auto": bool(fc.get("auto")), "auto_nm": fc.get("auto_nm"), "auto_ft": fc.get("auto_ft"),
+                "flights_note": f.auto_note() if fc.get("auto") else None}
 
     def _gif(self, msg):
         """Experimental: turn the frames into one GIF file and ask the Pixoo to download and play

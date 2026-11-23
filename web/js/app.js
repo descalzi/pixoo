@@ -1256,7 +1256,7 @@ function renderNow() {
   bar.dataset.state = st.error ? 'err' : up ? 'busy' : st.on.kind ? 'on' : 'idle';
   const chip = $('nowFlights');
   chip.hidden = !st.flights_auto;
-  if (st.flights_auto) chip.title = `Flights takes over the Pixoo when a plane is closer than ${st.auto_nm} nm and lower than ${Number(st.auto_ft).toLocaleString()} ft`;
+  if (st.flights_auto) chip.title = st.flights_note || `Flights takes over the Pixoo when a plane is closer than ${st.auto_nm} nm and lower than ${Number(st.auto_ft).toLocaleString()} ft`;
 }
 async function pollNow() {
   clearTimeout(nowTimer);
