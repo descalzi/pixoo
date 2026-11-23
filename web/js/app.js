@@ -5,7 +5,7 @@ const $$ = sel => [...document.querySelectorAll(sel)];
 const cv = $('screen'), ctx = cv.getContext('2d');
 // Choices shared through the home server (data/config.json), so every device sees the same.
 // The theme and the connection settings stay per device.
-const SHARED = new Set(['character', 'mixChars', 'effect', 'game', 'infoKind', 'uploadMode', 'sendMethod', 'liveFace']);
+const SHARED = new Set(['character', 'mixChars', 'effect', 'game', 'infoKind', 'uploads', 'sendMethod', 'liveFace']);
 let sharedQueue = null;
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
@@ -158,8 +158,8 @@ async function sendAsGif(list, speed) {
   if (!r.ok) throw new Error(j.error || 'server error ' + r.status);
   return !!j.fetched;
 }
-$('uploadMode').value = store.get('uploadMode', 'auto');
-$('uploadMode').onchange = () => store.set('uploadMode', $('uploadMode').value);
+$('uploadMode').value = store.get('uploads', 'full');
+$('uploadMode').onchange = () => store.set('uploads', $('uploadMode').value);
 showUploadSpeed();
 
 let sending = false, overlayOn = false;

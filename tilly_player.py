@@ -385,13 +385,21 @@ class TillyPlayer:
         return self.scenes.get((who, name, sky)) or self.scenes.get((who, name, "day")) \
             or self.scenes.get((who, "idle", sky)) or next(iter(self.scenes.values()))
 
+    def _quick(self, slow):
+        """Halve the frames? Only if chosen in Settings (Frames per animation): Full is the default."""
+        try:
+            mode = json.loads((self.dir / "config.json").read_text()).get("prefs", {}).get("uploads", "full")
+        except (OSError, ValueError, AttributeError):
+            mode = "full"
+        return mode == "quick" or (mode == "auto" and slow)
+
     def _push(self, name, sky, first_frame_only=False):
         sc = self._scene(name, sky)
         now = datetime.now()
         hhmm = now.strftime("%H:%M")
         temp = self.weather["t"] if self.weather else None
         slow = self.slow
-        frames, speed = lighten(sc["frames"], sc["speed"], sc["loop"], slow)
+        frames, speed = lighten(sc["frames"], sc["speed"], sc["loop"], self._quick(slow))
         if first_frame_only:
             frames = frames[:1]
         send = lambda body: self.pixoo.send(json.dumps(body).encode())

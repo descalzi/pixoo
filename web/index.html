@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Rethink+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="css/styles.css?v=20261123g">
+<link rel="stylesheet" href="css/styles.css?v=20261123h">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' rx='1.5' fill='%2315122B'/%3E%3Crect x='1' y='1' width='3' height='3' fill='%23FF8FC7'/%3E%3Crect x='4' y='1' width='3' height='3' fill='%237CF0C5'/%3E%3Crect x='1' y='4' width='3' height='3' fill='%23FFD36B'/%3E%3Crect x='4' y='4' width='3' height='3' fill='%238B7BFF'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -330,11 +330,11 @@
         <div class="field">
           <label for="uploadMode">Frames per animation</label>
           <select id="uploadMode" aria-describedby="uploadHelp">
-            <option value="auto">Automatic (recommended)</option>
-            <option value="full">Full: up to 40 frames, smoothest</option>
+            <option value="full">Full: up to 40 frames, smoothest (default)</option>
+            <option value="auto">Automatic: Quick when the Pixoo is slow</option>
             <option value="quick">Quick: up to 20 frames, about twice as fast to send</option>
           </select>
-          <small id="uploadHelp">The Pixoo takes each frame one at a time. Automatic switches to Quick when your Pixoo is slow to accept them.</small>
+          <small id="uploadHelp">The Pixoo takes each frame one at a time, so Full takes longer to send but looks best. Also used by the home server for characters. Saved straight away.</small>
         </div>
         <div class="field" id="sendMethodField" hidden>
           <label for="sendMethod">How to send animations</label>
@@ -360,11 +360,11 @@
 
 <div class="toast-region" id="toasts" aria-live="polite"></div>
 
-<script src="js/pixelart.js?v=20261123g"></script>
-<script src="js/characters.js?v=20261123g"></script>
-<script src="js/cast.js?v=20261123g"></script>
-<script src="js/tilly.js?v=20261123g"></script>
-<script src="js/games.js?v=20261123g"></script>
+<script src="js/pixelart.js?v=20261123h"></script>
+<script src="js/characters.js?v=20261123h"></script>
+<script src="js/cast.js?v=20261123h"></script>
+<script src="js/tilly.js?v=20261123h"></script>
+<script src="js/games.js?v=20261123h"></script>
 <script>
 // With the home server, the page's choices (character, mix, info screen, upload mode...) live on the
 // server, so every phone and computer shows the same. Load them before the app starts.
@@ -375,7 +375,7 @@
       for (const [k, v] of Object.entries(c.prefs || {})) localStorage.setItem(k, v);
     }
   } catch {}
-  const s = document.createElement('script'); s.src = 'js/app.js?v=20261123g'; document.body.append(s);
+  const s = document.createElement('script'); s.src = 'js/app.js?v=20261123h'; document.body.append(s);
 })();
 </script>
 </body>
