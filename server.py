@@ -9,6 +9,10 @@ Only needs Python 3 (standard library).
     python3 server.py --pixoo 192.168.4.192 --port 8080
 """
 import argparse
+import collections
+import logging
+import logging.handlers
+from datetime import datetime
 import base64
 import itertools
 import json
@@ -27,6 +31,28 @@ from tilly_player import TillyPlayer
 # Original firmware: port 80 /post. Newer units ("Pixoo-64 II"): port 9000 /divoom_api.
 ENDPOINTS = (":80/post", ":9000/divoom_api")
 SETTLE_S = 1.5  # pause after an animation upload is cut short, before the device gets anything else
+
+
+# Every request to the device, with its reply, goes to data/pixoo.log and the last 300 to
+# GET /api/log, so a crash on the device can be traced to the exact request sequence.
+DEVICE_LOG = collections.deque(maxlen=300)
+device_log = logging.getLogger("pixoo")
+
+
+def log_request(body, reply, err, seconds):
+    try:
+        msg = json.loads(body)
+    except ValueError:
+        msg = {"Command": "?"}
+    data = msg.pop("PicData", None)
+    if data is not None:
+        msg["PicData"] = f"<{len(data)} chars>"
+    shown = {k: v for k, v in msg.items() if k != "Command"}
+    result = f"ERROR {err!r}" if err else (reply or b"")[:160].decode("utf-8", "replace")
+    line = (f"{datetime.now().strftime('%H:%M:%S.%f')[:-3]} [{threading.current_thread().name}] "
+            f"{msg.get('Command')} {json.dumps(shown)[:300] if shown else ''} -> {result} ({seconds * 1000:.0f} ms)")
+    DEVICE_LOG.append(line)
+    device_log.info(line)
 
 
 class Pixoo:
@@ -84,6 +110,17 @@ class Pixoo:
 
     def send(self, body):
         frame = b"Draw/SendHttpGif" in body[:80]
+        t_start, reply, err = time.monotonic(), None, None
+        try:
+            reply = self._send(body, frame)
+            return reply
+        except Exception as e:
+            err = e
+            raise
+        finally:
+            log_request(body, reply, err, time.monotonic() - t_start)
+
+    def _send(self, body, frame):
         with self.lock:
             # after an animation was cut short, give the Pixoo time to settle before the next one
             wait = max(0.03 - (time.monotonic() - self.last), SETTLE_S - (time.monotonic() - self.cut_at))
@@ -233,6 +270,13 @@ class Handler(SimpleHTTPRequestHandler):
             return {}
 
     def do_GET(self):
+        if self.path == "/api/log":
+            data = ("\n".join(DEVICE_LOG) + "\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            return self.wfile.write(data)
         if self.path == "/api/health":
             fm = self.pixoo.frame_ms
             return self._json(200, {"ok": True, "pixoo": self.pixoo.ip, "endpoint": self.pixoo.url, "tilly": True,
@@ -473,6 +517,11 @@ def main():
         print(f"Warning: {e}. Will retry when the page sends something.")
     here = Path(__file__).resolve().parent
     web = here / "web"
+    (here / "data").mkdir(exist_ok=True)
+    handler_ = logging.handlers.RotatingFileHandler(here / "data" / "pixoo.log", maxBytes=1_000_000, backupCount=2)
+    handler_.setFormatter(logging.Formatter("%(message)s"))
+    device_log.addHandler(handler_)
+    device_log.setLevel(logging.INFO)
     Handler.config_file = here / "data" / "config.json"
     try:
         Handler.pixoo.gif_ok = json.loads((here / "data" / "device.json").read_text()).get("gif_ok")

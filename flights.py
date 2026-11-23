@@ -519,13 +519,13 @@ class FlightTracker:
         self.frame = None
         self.feed, self.error, self.updated, self.count = None, None, None, 0
         self.routes, self.logos = {}, {}
-        self.pushed = None
+        self.pushed, self.pushed_at, self.pushed_hex = None, 0.0, None
         self.takeover, self.resume_tilly, self.last_close = False, False, 0.0
         self.page_at = 0.0
         self.watch_at = 0.0
         self.lock = threading.Lock()
         self.wake = threading.Event()
-        threading.Thread(target=self._run, daemon=True).start()
+        threading.Thread(target=self._run, name="flights", daemon=True).start()
 
     # -- control (called from the web server)
     def save(self):
@@ -700,12 +700,16 @@ class FlightTracker:
     def _push(self):
         if self.frame == self.pushed or not self.frame:
             return
+        # the same plane moving along: refresh at most every 30 s, to go easy on the device
+        same = self.pushed is not None and (self.plane or {}).get("hex") == self.pushed_hex
+        if same and time.time() - self.pushed_at < 30:
+            return
         frame = self.frame
-        if self.pushed is None:  # first card: clear any clock or temperature text the device draws on top
-            self.pixoo.send(b'{"Command":"Draw/ClearHttpText"}')
+        # No Draw/ClearHttpText here: whoever put text on the device clears it when they stop, and
+        # clearing when there is no text may be what crashed Martin's Pixoo (2026-11-23).
         # through play(), so the card never lands in the middle of another animation's upload
         if self.pixoo.play([frame], 1000):
-            self.pushed = frame
+            self.pushed, self.pushed_at, self.pushed_hex = frame, time.time(), (self.plane or {}).get("hex")
 
     def _close_enough(self):
         p, c = self.plane, self.config
