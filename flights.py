@@ -286,56 +286,84 @@ def decode_png(data):
     return w, h, bytes(out)
 
 
-def logo_tile(png, size=15, tile=(244, 242, 255)):
-    """Crop the logo to what's drawn, fit it in size x size on a light tile. Returns (pixels, brand colour)."""
+def _dist2(a, b):
+    return (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
+
+
+def logo_tile(png, size=17, tile=(244, 242, 255), max_colours=4):
+    """Turn a logo into crisp pixel art for a size x size tile. Returns (pixels, brand colour).
+
+    Averaging a detailed logo down to 17 px gives a blur, so instead: find the logo's few main
+    colours, give every source pixel the nearest of them, and let each tile pixel take the logo
+    colour that covers at least a third of it (else the background). Thin strokes stay solid and
+    edges stay sharp."""
     w, h, px = decode_png(png)
 
-    def a(x, y):
-        return px[(y * w + x) * 4 + 3]
-    xs = [x for x in range(w) for y in range(0, h, 2) if a(x, y) > 24]
-    ys = [y for y in range(h) for x in range(0, w, 2) if a(x, y) > 24]
-    if not xs:
-        raise ValueError("empty logo")
-    x0, x1, y0, y1 = min(xs), max(xs) + 1, min(ys), max(ys) + 1
-    # logos on an opaque white background: trim the near-white border too
-    if all(a(x, y) > 250 for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))):
-        def ink(x, y):
-            k = (y * w + x) * 4
-            return min(px[k:k + 3]) < 225
-        xs = [x for x in range(w) for y in range(0, h, 2) if ink(x, y)]
-        ys = [y for y in range(h) for x in range(0, w, 2) if ink(x, y)]
-        if xs:
-            x0, x1, y0, y1 = min(xs), max(xs) + 1, min(ys), max(ys) + 1
+    def rgb(x, y):  # over the tile colour where transparent
+        k = (y * w + x) * 4
+        a = px[k + 3] / 255
+        return tuple(round(tile[i] + (px[k + i] - tile[i]) * a) for i in range(3))
+
+    corners = [rgb(x, y) for x, y in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1))]
+    bg = max(set(corners), key=corners.count)
+    filled = _dist2(bg, tile) > 1600  # the logo brings its own background (an icon): use the whole tile
+    # crop to what's drawn, unless it's a full icon
+    x0, y0, x1, y1 = 0, 0, w, h
+    if not filled:
+        ink = [(x, y) for y in range(h) for x in range(w) if _dist2(rgb(x, y), bg) > 1200]
+        if not ink:
+            raise ValueError("empty logo")
+        x0, x1 = min(p[0] for p in ink), max(p[0] for p in ink) + 1
+        y0, y1 = min(p[1] for p in ink), max(p[1] for p in ink) + 1
+        pad = max(x1 - x0, y1 - y0) // 14  # a little breathing room inside the tile
+        x0, y0, x1, y1 = max(0, x0 - pad), max(0, y0 - pad), min(w, x1 + pad), min(h, y1 + pad)
+    # the main colours: count 4-bit colours, merge near ones
+    counts = {}
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            c = rgb(x, y)
+            q = (c[0] >> 4, c[1] >> 4, c[2] >> 4)
+            e = counts.setdefault(q, [0, 0, 0, 0])
+            e[0] += c[0]; e[1] += c[1]; e[2] += c[2]; e[3] += 1
+    total = sum(e[3] for e in counts.values())
+    palette = [bg]
+    for e in sorted(counts.values(), key=lambda e: -e[3]):
+        c = (round(e[0] / e[3]), round(e[1] / e[3]), round(e[2] / e[3]))
+        if e[3] < total * .015 or len(palette) >= max_colours:
+            break
+        if all(_dist2(c, p) > 2500 for p in palette):
+            palette.append(c)
+    # downscale by coverage, biased towards ink
     cw, ch = x1 - x0, y1 - y0
-    scale = max(cw, ch) / size
-    ow, oh = max(1, round(cw / scale)), max(1, round(ch / scale))
-    ox, oy = (size - ow) // 2, (size - oh) // 2
-    grid = [[tile] * size for _ in range(size)]
-    bins = {}
-    for ty in range(oh):
-        for tx in range(ow):
-            sx0, sx1 = x0 + int(tx * scale), max(x0 + int(tx * scale) + 1, x0 + int((tx + 1) * scale))
-            sy0, sy1 = y0 + int(ty * scale), max(y0 + int(ty * scale) + 1, y0 + int((ty + 1) * scale))
-            r = g = b = al = 0
-            for yy in range(sy0, min(sy1, h)):
-                for xx in range(sx0, min(sx1, w)):
-                    k = (yy * w + xx) * 4
-                    aa = px[k + 3]
-                    r += px[k] * aa
-                    g += px[k + 1] * aa
-                    b += px[k + 2] * aa
-                    al += aa
-            n = (min(sy1, h) - sy0) * (min(sx1, w) - sx0) or 1
-            if al:
-                col = (r / al, g / al, b / al)
-                cov = al / (255 * n)
-                grid[oy + ty][ox + tx] = tuple(round(tile[i] + (col[i] - tile[i]) * cov) for i in range(3))
-                mx, mn = max(col), min(col)
-                if cov > .5 and mx - mn > 60:  # saturated: a vote for the brand colour
-                    b = bins.setdefault(tuple(int(v) // 64 for v in col), [0, 0, 0, 0])
-                    b[0] += col[0]; b[1] += col[1]; b[2] += col[2]; b[3] += 1
-    top = max(bins.values(), key=lambda b: b[3]) if bins else None
-    colour = tuple(round(v / top[3]) for v in top[:3]) if top else None
+    side = max(cw, ch)
+    ox, oy = x0 - (side - cw) / 2, y0 - (side - ch) / 2  # centre in a square
+    step = side / size
+    grid, votes = [], {}
+    for ty in range(size):
+        row = []
+        for tx in range(size):
+            cover = [0] * len(palette)
+            n = 0
+            sy0, sx0 = int(oy + ty * step), int(ox + tx * step)
+            sy1, sx1 = max(int(oy + (ty + 1) * step), sy0 + 1), max(int(ox + (tx + 1) * step), sx0 + 1)
+            for yy in range(sy0, sy1):
+                for xx in range(sx0, sx1):
+                    if 0 <= xx < w and 0 <= yy < h:  # outside the logo: counts as nothing
+                        c = rgb(xx, yy)
+                        cover[min(range(len(palette)), key=lambda i: _dist2(c, palette[i]))] += 1
+                        n += 1
+            pick = 0
+            if n:
+                best = max(range(1, len(palette)), key=lambda i: cover[i], default=0)
+                if best and cover[best] >= n / 3:
+                    pick = best
+            row.append(palette[pick] if n else bg)
+            votes[pick] = votes.get(pick, 0) + 1
+        grid.append(row)
+    # brand colour: the most used colourful one (the icon's own background counts too)
+    colourful = [i for i in range(len(palette)) if max(palette[i]) - min(palette[i]) > 60]
+    used = {i: votes.get(i, 0) for i in colourful}
+    colour = palette[max(used, key=used.get)] if used and max(used.values()) else None
     return grid, colour
 
 
@@ -420,12 +448,10 @@ def render_card(p, route, logo):
     # logo tile (corners rounded off)
     tile = (244, 242, 255)
     c.rect(1, 1, 17, 17, tile)
-    for x, y in ((1, 1), (17, 1), (1, 17), (17, 17)):
-        c.put(x, y, band)
-    if logo:
+    if logo:  # 17x17 pixel art filling the tile
         for y, row in enumerate(logo[0]):
             for x, col in enumerate(row):
-                c.put(2 + x, 2 + y, col)
+                c.put(1 + x, 1 + y, col)
     elif airline.get("iata") or airline.get("icao"):
         c.small((airline.get("iata") or airline["icao"])[:3], 10, 7, _mix(brand, (0, 0, 0), .35), align='center')
     else:  # no airline: a little plane
@@ -433,6 +459,8 @@ def render_card(p, route, logo):
             for x, v in enumerate(row):
                 if v == '1':
                     c.put(3 + x, 3 + y, _mix(brand, (0, 0, 0), .35))
+    for x, y in ((1, 1), (17, 1), (1, 17), (17, 17)):  # round the tile's corners
+        c.put(x, y, band)
     name = p["callsign"] or p["reg"] or (p["hex"] or "").upper()
     if big_width(name) <= 43:
         c.fancy(name, 21, 2, '#FFFFFF', '#FFD36B')
@@ -508,7 +536,7 @@ class FlightTracker:
         self.pixoo, self.tilly, self.location = pixoo, tilly, location
         self.dir = Path(data_dir)
         self.dir.mkdir(parents=True, exist_ok=True)
-        (self.dir / "logos").mkdir(exist_ok=True)
+        (self.dir / "logos2").mkdir(exist_ok=True)
         self.file = self.dir / "flights.json"
         self.config = dict(DEFAULTS)
         try:
@@ -664,16 +692,18 @@ class FlightTracker:
         key = icao or iata
         if key in self.logos:
             return self.logos[key]
-        cache = self.dir / "logos" / f"{key}.png"
+        cache = self.dir / "logos2" / f"{key}.png"
         png = None
         try:
             png = cache.read_bytes() or None
         except OSError:
+            # simple square icons first (they survive 17 px best), the detailed avs.io logos last
             urls = []
+            if icao:
+                base = "https://raw.githubusercontent.com/Jxck-S/airline-logos/main/"
+                urls += [f"{base}flightaware_logos/{icao}.png", f"{base}radarbox_logos/{icao}.png"]
             if iata:
                 urls.append(f"https://pics.avs.io/64/64/{iata}.png")
-            if icao:
-                urls.append(f"https://raw.githubusercontent.com/Jxck-S/airline-logos/main/flightaware_logos/{icao}.png")
             for u in urls:
                 try:
                     with urllib.request.urlopen(urllib.request.Request(u, headers=UA), timeout=10) as r:
