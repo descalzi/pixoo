@@ -50,6 +50,7 @@ Every request the server sends to the Pixoo, with its reply, is logged to `data/
 ### Living Tilly API (server.py)
 
 - `POST /api/tilly/scenes` `{"scenes": [{name, sky, speed, loop, frames: [base64 RGB]}]}` stores the rendered scenes.
+- **What the server remembers** (in `data/`, survives restarts): the weather location, GIF link and the page's shared choices (`config.json`: character, mix, effect, game, info screen, upload mode), Flights settings (`flights.json`), the character or info screen playing (`tilly_state.json`, `info_state.json`, resumed on start), the character scenes (`scenes/`) and what the page last sent (`now.json`). The theme and the Pixoo address stay per browser.
 - `GET /api/now` tells the status bar on every page what's on the Pixoo (a character, an info screen, the flight card or something the page sent), any upload in progress (frame x of y), the last error, and whether Flights takeover is on. The page names what it sends with `POST /api/now {"what"}`.
 - `POST /api/tilly/start` `{"lat", "lon", "character"}` starts the player for any character in `LIVING` (or `"mix"`) (lat/lon default to the Settings location), `POST /api/tilly/stop` stops it, `GET /api/tilly/status` reports mood, scene, weather and errors.
 - Scene choice lives in `mood_for()` in `tilly_player.py`; the drawings live in `web/js/tilly.js`.

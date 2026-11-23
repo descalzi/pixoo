@@ -336,13 +336,18 @@ class Handler(SimpleHTTPRequestHandler):
             self.flights.page_drew()
             return self._gif(msg)
         if self.path == "/api/now":  # the page names what it just sent, for everyone's status bar
-            Handler.page_now = {"what": str(msg.get("what") or "")[:80] or None, "at": time.time()}
+            self._set_page_now(str(msg.get("what") or "")[:80] or None)
             return self._json(200, self._now())
         if self.path == "/api/config":
             cfg = self._config()
             for k in ("lat", "lon", "place"):
                 if k in msg:
                     cfg[k] = str(msg[k])[:120]
+            if isinstance(msg.get("prefs"), dict):  # the page's choices, shared by every device
+                prefs = cfg.setdefault("prefs", {})
+                for k, v in list(msg["prefs"].items())[:40]:
+                    if isinstance(k, str) and len(k) <= 40 and len(prefs) < 60 or k in prefs:
+                        prefs[k] = str(v)[:200]
             if "gif_link" in msg and bool(msg["gif_link"]) != self.pixoo.use_gif:
                 cfg["gif_link"] = self.pixoo.use_gif = bool(msg["gif_link"])
                 if self.pixoo.use_gif:
@@ -362,7 +367,7 @@ class Handler(SimpleHTTPRequestHandler):
             self.flights.page_drew()
             self.shows.stop()
         if draw and (not self.page_now or time.time() - self.page_now["at"] > 120):
-            Handler.page_now = {"what": None, "at": time.time()}  # something from the page; it may name it
+            self._set_page_now(None)  # something from the page; it may name it
         try:
             if draw:  # wait for any server upload to stop, so the page's frames never mix with it
                 if self.pixoo.play_lock.locked():
@@ -381,6 +386,14 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()
         self.wfile.write(reply)
+
+    @classmethod
+    def _set_page_now(cls, what):
+        cls.page_now = {"what": what, "at": time.time()}
+        try:  # kept on disk so the status bar is right after a restart too
+            (cls.config_file.parent / "now.json").write_text(json.dumps(cls.page_now))
+        except OSError:
+            pass
 
     def _now(self):
         """What's on the Pixoo right now, for the status bar on every page."""
@@ -523,6 +536,10 @@ def main():
     device_log.addHandler(handler_)
     device_log.setLevel(logging.INFO)
     Handler.config_file = here / "data" / "config.json"
+    try:
+        Handler.page_now = json.loads((here / "data" / "now.json").read_text())
+    except (OSError, ValueError):
+        pass
     try:
         Handler.pixoo.gif_ok = json.loads((here / "data" / "device.json").read_text()).get("gif_ok")
     except (OSError, ValueError):

@@ -3,9 +3,24 @@ const S = 64;
 const $ = id => document.getElementById(id);
 const $$ = sel => [...document.querySelectorAll(sel)];
 const cv = $('screen'), ctx = cv.getContext('2d');
+// Choices shared through the home server (data/config.json), so every device sees the same.
+// The theme and the connection settings stay per device.
+const SHARED = new Set(['character', 'mixChars', 'effect', 'game', 'infoKind', 'uploadMode', 'sendMethod', 'liveFace']);
+let sharedQueue = null;
 const store = {
   get(k, d) { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  set(k, v) {
+    try { localStorage.setItem(k, v); } catch {}
+    if (!SHARED.has(k) || !location.protocol.startsWith('http')) return;
+    if (!sharedQueue) {  // batch quick changes into one save
+      sharedQueue = {};
+      setTimeout(() => {
+        const prefs = sharedQueue; sharedQueue = null;
+        fetch('api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prefs }) }).catch(() => {});
+      }, 300);
+    }
+    sharedQueue[k] = String(v);
+  },
 };
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
