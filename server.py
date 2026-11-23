@@ -21,6 +21,7 @@ from pathlib import Path
 
 import gifenc
 from flights import FlightTracker
+from live_info import InfoPlayer
 from tilly_player import TillyPlayer
 
 # Original firmware: port 80 /post. Newer units ("Pixoo-64 II"): port 9000 /divoom_api.
@@ -33,6 +34,8 @@ class Pixoo:
         self.lock = threading.Lock()  # the device handles one request at a time
         self.last = 0.0
         self.frame_ms = None  # how long the device takes to accept one animation frame (moving average)
+        self.gifs = None      # GifHost, once the web server is up
+        self.gif_ok = None    # does this Pixoo download GIFs from us? None until tried
 
     def _post(self, url, body, timeout=5):
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
@@ -73,13 +76,108 @@ class Pixoo:
                 self.last = time.monotonic()
 
 
+    def play(self, frames, speed, stop=None):
+        """Show an animation (base64 RGB frames). Uses one GIF the Pixoo downloads when this unit
+        supports that (tried once, then remembered), otherwise one request per frame."""
+        if self.gifs and self.gif_ok is not False and len(frames) > 1:
+            if self.gifs.play(self, frames, speed):
+                return True
+        send = lambda body: self.send(json.dumps(body).encode())
+        send({"Command": "Draw/ResetHttpGifId"})
+        for i, f in enumerate(frames):
+            if stop is not None and stop.is_set():
+                return False
+            send({"Command": "Draw/SendHttpGif", "PicNum": len(frames), "PicWidth": 64, "PicOffset": i,
+                  "PicID": 1, "PicSpeed": speed, "PicData": f})
+        return True
+
+
+class GifHost:
+    """Keeps the last few GIFs for the Pixoo to download and notices when it does."""
+
+    def __init__(self, base_url, state_file):
+        self.base_url, self.state_file = base_url, state_file
+        self.files, self.fetched, self.ids = {}, set(), itertools.count(1)
+
+    def publish(self, data, base_url=None):
+        name = f"anim{next(self.ids)}.gif"
+        self.files[name] = data
+        for old in list(self.files)[:-6]:
+            del self.files[old]
+        return name, f"{base_url or self.base_url}/gif/{name}"
+
+    def wait_fetched(self, name, seconds=8):
+        deadline = time.monotonic() + seconds
+        while name not in self.fetched and time.monotonic() < deadline:
+            time.sleep(.1)
+        return name in self.fetched
+
+    def remember(self, pixoo, ok):
+        if pixoo.gif_ok != ok:
+            pixoo.gif_ok = ok
+            try:
+                self.state_file.parent.mkdir(parents=True, exist_ok=True)
+                self.state_file.write_text(json.dumps({"gif_ok": ok}))
+            except OSError:
+                pass
+
+    def play(self, pixoo, frames, speed):
+        data = gifenc.encode([base64.b64decode(f) for f in frames], speed)
+        name, url = self.publish(data)
+        pixoo.send(json.dumps({"Command": "Device/PlayTFGif", "FileType": 2, "FileName": url}).encode())
+        ok = self.wait_fetched(name, 8 if pixoo.gif_ok is None else 5)
+        self.remember(pixoo, ok)
+        return ok
+
+
+class Shows:
+    """The things the home server keeps on the Pixoo by itself: a character (TillyPlayer) or an info
+    display (InfoPlayer). Only one plays at a time. Flights talks to this as if it were one player,
+    so it can pause whatever is on and hand back to it afterwards."""
+
+    def __init__(self, tilly, info):
+        self.tilly, self.info = tilly, info
+        self.last = None  # what was playing before the last stop, so Flights can hand it back
+
+    @property
+    def running(self):
+        return self.tilly.running or self.info.running
+
+    @property
+    def config(self):
+        if self.info.running:
+            return {"_show": "info", **self.info.config}
+        if self.tilly.running or not self.last:
+            return {"_show": "character", **self.tilly.config}
+        return self.last
+
+    def start(self, config):
+        config = dict(config)
+        which = config.pop("_show", "character")
+        self.stop(save=False)
+        (self.info if which == "info" else self.tilly).start(config)
+
+    def stop(self, save=True):
+        if self.running:
+            self.last = self.config
+        if self.tilly.running:
+            self.tilly.stop(save=save)
+        if self.info.running:
+            self.info.stop(save=save)
+
+    def status(self):
+        st = {"running": self.running, "show": "info" if self.info.running else "character" if self.tilly.running else None}
+        st["info"], st["character"] = self.info.status(), self.tilly.status()
+        return st
+
+
 class Handler(SimpleHTTPRequestHandler):
     pixoo: Pixoo = None
     tilly: TillyPlayer = None
+    info: InfoPlayer = None
+    shows: Shows = None
     flights: FlightTracker = None
-    gifs = {}  # recent animations the Pixoo can download, by file name
-    gif_ids = itertools.count(1)
-    gif_fetched = set()  # names the Pixoo has actually downloaded
+    gif_host: "GifHost" = None  # GIFs the Pixoo can download
     config_file: Path = None  # settings shared by every device that opens the page (weather location)
 
     def _config(self):
@@ -95,13 +193,22 @@ class Handler(SimpleHTTPRequestHandler):
                                     "frame_ms": round(fm) if fm else None})
         if self.path == "/api/tilly/status":
             return self._json(200, self.tilly.status())
+        if self.path in ("/api/info/status", "/api/live/status"):
+            return self._json(200, self.shows.status())
+        if self.path.startswith("/api/info/preview"):
+            from urllib.parse import parse_qs, urlparse
+            kind = parse_qs(urlparse(self.path).query).get("kind", ["clock"])[0]
+            try:
+                return self._json(200, {"frame": self.info.frame(kind).b64()})
+            except Exception as e:
+                return self._json(400, {"error": str(e)})
         if self.path == "/api/config":
             return self._json(200, self._config())
         if self.path == "/api/flights/status":
             return self._json(200, self.flights.status())
-        if self.path.startswith("/gif/") and self.path[5:] in self.gifs:
-            data = self.gifs[self.path[5:]]
-            self.gif_fetched.add(self.path[5:])
+        if self.path.startswith("/gif/") and self.path[5:] in self.gif_host.files:
+            data = self.gif_host.files[self.path[5:]]
+            self.gif_host.fetched.add(self.path[5:])
             self.send_response(200)
             self.send_header("Content-Type", "image/gif")
             self.send_header("Content-Length", str(len(data)))
@@ -119,6 +226,20 @@ class Handler(SimpleHTTPRequestHandler):
             return self._tilly(self.path[len("/api/tilly/"):], msg)
         if self.path.startswith("/api/flights/"):
             return self._flights(self.path[len("/api/flights/"):], msg)
+        if self.path.startswith("/api/info/"):
+            try:
+                action = self.path[len("/api/info/"):]
+                if action == "start":
+                    self.flights.stop()  # the info display takes the display
+                    self.shows.stop(save=True)
+                    self.info.start(msg)
+                elif action == "stop":
+                    self.info.stop()
+                else:
+                    return self._json(404, {"error": "not found"})
+            except (ValueError, KeyError, TypeError) as e:
+                return self._json(400, {"error": str(e)})
+            return self._json(200, self.shows.status())
         if self.path == "/api/gif":
             self.flights.page_drew()
             return self._gif(msg)
@@ -135,10 +256,9 @@ class Handler(SimpleHTTPRequestHandler):
             return self._json(200, cfg)
         if self.path != "/api":
             return self._json(404, {"error": "not found"})
-        # anything the page draws takes over the screen from Living Tilly and Flights
+        # anything the page draws takes over the screen from the server's shows and Flights
         if str(msg.get("Command", "")).startswith("Draw/"):
-            if self.tilly.running:
-                self.tilly.stop()
+            self.shows.stop()
             self.flights.page_drew()
         try:
             reply = self.pixoo.send(body)
@@ -160,17 +280,12 @@ class Handler(SimpleHTTPRequestHandler):
             data = gifenc.encode(frames, int(msg.get("speed", 100)))
         except (KeyError, TypeError, ValueError) as e:
             return self._json(400, {"error": str(e)})
-        name = f"anim{next(self.gif_ids)}.gif"
-        self.gifs[name] = data
-        for old in list(self.gifs)[:-6]:
-            del self.gifs[old]
         # the Pixoo must reach this server by the address the page used, unless that was localhost
         host = self.headers.get("Host", "")
         if not host or host.split(":")[0] in ("localhost", "127.0.0.1"):
             host = f"{lan_ip()}:{self.server.server_address[1]}"
-        url = f"http://{host}/gif/{name}"
-        if self.tilly.running:
-            self.tilly.stop()
+        name, url = self.gif_host.publish(data, f"http://{host}")
+        self.shows.stop()
         try:
             reply = self.pixoo.send(json.dumps({"Command": "Device/PlayTFGif", "FileType": 2, "FileName": url}).encode())
         except OSError as e:
@@ -179,19 +294,19 @@ class Handler(SimpleHTTPRequestHandler):
             reply = json.loads(reply)
         except ValueError:
             reply = None
-        # did the Pixoo come and fetch it? that's the real sign this method works on this unit
-        deadline = time.monotonic() + 8
-        while name not in self.gif_fetched and time.monotonic() < deadline:
-            time.sleep(.1)
+        fetched = self.gif_host.wait_fetched(name)
+        self.gif_host.remember(self.pixoo, fetched)
         return self._json(200, {"ok": True, "url": url, "bytes": len(data), "frames": len(frames),
-                                "fetched": name in self.gif_fetched, "reply": reply})
+                                "fetched": fetched, "reply": reply})
 
     def _tilly(self, action, msg):
         try:
             if action == "scenes":
-                return self._json(200, {"ok": True, "scenes": self.tilly.upload(msg.get("scenes", []))})
+                meta = {k: msg[k] for k in ("character", "version") if k in msg}
+                return self._json(200, {"ok": True, "scenes": self.tilly.upload(msg.get("scenes", []), meta)})
             if action == "start":
-                self.flights.stop()  # Tilly takes the display
+                self.flights.stop()  # the character takes the display
+                self.shows.stop()
                 cfg = self._config()  # fall back to the shared weather location from Settings
                 self.tilly.start({"lat": cfg.get("lat"), "lon": cfg.get("lon"), **{k: v for k, v in msg.items() if v}})
             elif action == "stop":
@@ -258,9 +373,15 @@ def main():
         print(f"Warning: {e}. Will retry when the page sends something.")
     here = Path(__file__).resolve().parent
     web = here / "web"
-    Handler.tilly = TillyPlayer(Handler.pixoo, here / "data")  # resumes Living Tilly if it was on
     Handler.config_file = here / "data" / "config.json"
-    Handler.flights = FlightTracker(Handler.pixoo, Handler.tilly, here / "data",
+    try:
+        Handler.pixoo.gif_ok = json.loads((here / "data" / "device.json").read_text()).get("gif_ok")
+    except (OSError, ValueError):
+        pass
+    Handler.tilly = TillyPlayer(Handler.pixoo, here / "data")  # resumes a character if one was on
+    Handler.info = InfoPlayer(Handler.pixoo, here / "data", location=lambda: Handler._config(Handler))
+    Handler.shows = Shows(Handler.tilly, Handler.info)
+    Handler.flights = FlightTracker(Handler.pixoo, Handler.shows, here / "data",
                                     location=lambda: Handler._config(Handler))  # resumes Flights if it was on
     handler = partial(Handler, directory=str(web))
     # If the port is taken (8080 often is), try the next ones instead of failing.
@@ -272,6 +393,8 @@ def main():
             print(f"Port {port} is in use, trying {port + 1}")
     else:
         raise SystemExit(f"No free port between {args.port} and {args.port + 19}. Pick one with --port.")
+    Handler.pixoo.gifs = GifHost(f"http://{lan_ip()}:{port}", here / "data" / "device.json")
+    Handler.gif_host = Handler.pixoo.gifs
     print(f"Pixoo Studio running: open http://{lan_ip()}:{port} on any device on your wifi")
     server.serve_forever()
 

@@ -260,6 +260,8 @@ function drawTillyScene(name, sky, t, n) {
 }
 
 // Every scene/sky combination the server may play for a character, as raw RGB frames in base64.
+// Bump when any scene drawing changes, so the home server gets the new frames.
+const SCENES_VERSION = '2026-11-23b';
 async function characterScenePack(character, onProgress) {
   const scenes = [];
   const jobs = [];

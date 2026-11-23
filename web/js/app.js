@@ -417,6 +417,8 @@ function overlayPreview(img, items) {
   const c = new OffscreenCanvas(S, S).getContext('2d');
   c.putImageData(img, 0, 0);
   const now = new Date();
+  c.fillStyle = '#000';  // the Pixoo paints its own text on a solid strip, nothing shows through
+  for (const it of items) c.fillRect(it.x, it.y - 1, it.TextWidth, it.Textheight + 2);
   for (const it of items) {
     const str = it.type === 5 ? `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
       : it.type === 17 ? (weather ? `${weather.t}°C` : '--°C') : (it.TextString || '');
@@ -426,21 +428,40 @@ function overlayPreview(img, items) {
   }
   return c.getImageData(0, 0, S, S);
 }
+// With the home server, characters always run live there: it draws the time and temperature into
+// the picture in our 3D font, every minute, with this page closed. Without it, the Pixoo's own
+// overlay is the fallback (the "Live time and temperature" checkbox).
+let homeServer = false;
+function bandPreview(img) {
+  // what the home server draws in the top band (tilly_player.stamp_band)
+  const c = new OffscreenCanvas(S, S).getContext('2d'); c.putImageData(img, 0, 0);
+  const now = new Date();
+  fancyText(c, `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`, 3, 2, { top: '#FFFFFF', bottom: '#FFC94A' });
+  if (weather) {
+    const warm = weather.t >= 25 ? ['#FFE29A', '#FF7A3D'] : weather.t <= 5 ? ['#E6F6FF', '#5FB4FF'] : ['#FFFFFF', '#7CF0C5'];
+    fancyText(c, `${weather.t}°`, 61, 2, { top: warm[0], bottom: warm[1], align: 'right' });
+  }
+  return c.getImageData(0, 0, S, S);
+}
 function renderCharacter(name) {
-  const ch = CHARACTERS[name], live = !!ch.live && $('liveFace').checked;
-  charFrames = Array.from({ length: ch.frames }, (_, t) => ch.draw(t, ch.frames, { live }));
-  frames = live ? charFrames.map(f => overlayPreview(f, ch.live.items)) : charFrames;
+  const ch = CHARACTERS[name], live = !!ch.live && (homeServer || $('liveFace').checked);
+  if (homeServer && name === 'Tilly Tock') {
+    const sc = TILLY_SCENES.idle, sky = new Date().getHours() >= 20 || new Date().getHours() < 7 ? 'night' : 'day';
+    charFrames = Array.from({ length: sc.frames }, (_, t) => drawTillyScene('idle', sky, t, sc.frames));
+  } else charFrames = Array.from({ length: ch.frames }, (_, t) => ch.draw(t, ch.frames, { live }));
+  frames = !live ? charFrames : homeServer ? charFrames.map(bandPreview) : charFrames.map(f => overlayPreview(f, ch.live.items));
   frameIdx = 0; stageOwner = 'character';
-  setStage(name, live ? 'Live face' : `${ch.frames} frames · ${ch.speed} ms`);
-  $('charAbout').textContent = live ? ch.live.about : ch.about;
-  $('liveFaceField').hidden = !ch.live;
-  $('livingTilly').hidden = false;
-  tillyStatus();
+  setStage(name, homeServer ? 'Live from the home server' : live ? 'Live face' : `${ch.frames} frames · ${ch.speed} ms`);
+  $('charAbout').textContent = homeServer ? LIVING_ABOUT[name] : live ? ch.live.about : ch.about;
+  $('liveFaceField').hidden = !ch.live || homeServer;
+  $('livingTilly').hidden = !homeServer;
+  if (homeServer) tillyStatus();
   if (live && !weather) getWeather().then(w => { if (w && stageOwner === 'character') renderCharacter(currentChar); }).catch(() => {});
 }
 $('liveFace').checked = store.get('liveFace', '1') === '1';
 $('liveFace').onchange = () => { store.set('liveFace', $('liveFace').checked ? '1' : '0'); renderCharacter(currentChar); markEffect(); };
 async function sendCharacter() {
+  if (homeServer) return startOnServer(currentChar);
   renderCharacter(currentChar); // fresh render, so Tilly's hands show the current time
   const ch = CHARACTERS[currentChar];
   const ok = await sendFrames(charFrames, ch.speed, { quiet: liveFace() });
@@ -478,10 +499,9 @@ async function tillyApi(path, body) {
 const SANTA_MOODS = { santa_trousers: 'losing his trousers', santa_hohoho: 'laughing', santa_juggle: 'juggling presents' };
 function showTilly(st) {
   tillyState = st;
-  const mine = st.running && st.character === currentChar;
-  $('tillyHint').textContent = LIVING_ABOUT[currentChar];
-  $('tillyStop').hidden = !st.running;
-  $('tillyStart').querySelector('span').textContent = mine ? 'Update scenes' : st.running ? `Switch to ${short(currentChar)}` : 'Start on home server';
+  $('tillyHint').textContent = st.running
+    ? 'Sending anything else takes over the Pixoo and stops this.'
+    : `Press Send and the home server keeps ${short(currentChar) === 'Tilly' ? 'her' : 'him'} live on the Pixoo, even with this page closed.`;
   $('tillyBar').hidden = !st.running;
   if (st.running) {
     const w = st.weather ? ` · ${st.weather.t}°C` : '';
@@ -492,35 +512,34 @@ function showTilly(st) {
   if (st.running && route === 'characters') tillyPoll = setTimeout(tillyStatus, 20000);
 }
 async function tillyStatus() {
-  if (!(await hasServer())) {
-    $('tillyStart').disabled = true;
-    $('tillyHint').textContent = 'This runs on your home server. Open this page from the server (python3 server.py) to use it.';
-    return;
-  }
   try { showTilly(await tillyApi('status')); } catch {}
 }
-$('tillyStart').onclick = async () => {
-  const btn = $('tillyStart'), bar = $('tillyProgress');
-  btn.disabled = true; btn.setAttribute('aria-busy', 'true'); bar.hidden = false;
+async function startOnServer(who) {
+  const btn = $('send'), bar = $('tillyProgress');
+  btn.disabled = true; btn.setAttribute('aria-busy', 'true'); $('sendLabel').textContent = 'Starting';
   try {
-    // render every scene here (the server has no canvas), then hand them over
-    const who = currentChar;
-    const scenes = await characterScenePack(who, p => {
-      const pct = Math.round(p * 100);
-      bar.firstElementChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
-    });
-    await tillyApi('scenes', { scenes });
-    const st = await tillyApi('start', { lat: $('lat').value.trim(), lon: $('lon').value.trim(), character: who });
+    // the server has no canvas, so the page renders the scenes once and hands them over;
+    // skipped when the server already has this character's current scenes
+    const have = (await tillyApi('status')).pack || {};
+    if (have.character !== who || have.version !== SCENES_VERSION) {
+      bar.hidden = false;
+      const scenes = await characterScenePack(who, p => {
+        const pct = Math.round(p * 100);
+        bar.firstElementChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
+      });
+      await tillyApi('scenes', { scenes, character: who, version: SCENES_VERSION });
+    }
+    const st = await tillyApi('start', { character: who });
     overlayOn = false; stopLive();
     showTilly(st);
-    toast($('lat').value.trim() || who !== 'Tilly Tock' ? `${short(who)} is on the Pixoo now` : 'Tilly is on. Set a weather location in Settings so she can react to the weather.');
+    toast($('lat').value.trim() || who !== 'Tilly Tock' ? `${short(who)} is live on the Pixoo` : 'Tilly is on. Set a weather location in Settings so she can react to the weather.');
   } catch (e) {
     toast('Could not start on the home server: ' + e.message, 'err');
   } finally {
-    btn.disabled = false; btn.removeAttribute('aria-busy');
+    btn.disabled = false; btn.removeAttribute('aria-busy'); $('sendLabel').textContent = 'Send to Pixoo';
     setTimeout(() => { bar.hidden = true; bar.firstElementChild.style.width = '0'; }, 600);
   }
-};
+}
 $('tillyStop').onclick = async () => {
   try { showTilly(await tillyApi('stop', {})); toast('Stopped'); }
   catch (e) { toast('Could not stop: ' + e.message, 'err'); }
@@ -616,7 +635,7 @@ $('flightsStop').onclick = async () => {
 };
 
 $('send').onclick = () => {
-  if (stageOwner === 'info') return startLive(infoPick);
+  if (stageOwner === 'info') return homeServer ? startInfoOnServer(infoPick) : startLive(infoPick);
   stopLive(); // whatever is sent now replaces the minute-by-minute info display
   if (stageOwner === 'flights') return sendFlights();
   if (stageOwner === 'character') return sendCharacter();
@@ -742,7 +761,7 @@ $('delFrame').onclick = () => {
 $('playDraw').onclick = () => { stageOwner = 'draw'; setDrawPlaying(!drawPlaying); };
 
 // ---------- info displays ----------
-let liveKind = null;
+let liveKind = null, serverInfoKind = null;  // serverInfoKind: what the home server keeps live
 let liveTimer = null, weather = null, weatherAt = 0;
 const WMO = code => code === 0 ? 'sun' : code <= 3 ? 'cloud' : code <= 48 ? 'fog' : code <= 67 || (code >= 80 && code <= 82) ? 'rain' : code <= 77 || code === 85 || code === 86 ? 'snow' : 'storm';
 function drawIcon(c, kind, x, y) {
@@ -912,7 +931,7 @@ let infoPick = INFO_TITLES[store.get('infoKind', '')] ? store.get('infoKind') : 
 async function previewInfo(kind) {
   infoPick = kind; store.set('infoKind', kind); stageOwner = 'info';
   $$('[data-display]').forEach(b => b.setAttribute('aria-checked', String(b.dataset.display === kind)));
-  const live = liveTimer && liveKind === kind;
+  const live = (liveTimer && liveKind === kind) || serverInfoKind === kind;
   setStage(INFO_TITLES[kind], live ? 'On the Pixoo, updating every minute' : 'Press Send to show it on the Pixoo');
   const f = await infoFrameFor(kind);
   if (stageOwner === 'info' && infoPick === kind) { frames = [f]; frameIdx = 0; }
@@ -934,12 +953,41 @@ async function startLive(kind) {
   liveTimer = setTimeout(function again() { tick(); liveTimer = setTimeout(again, 60e3 - (Date.now() % 60e3) + 300); }, 60e3 - (Date.now() % 60e3) + 300);
   markEffect();
 }
+async function startInfoOnServer(kind) {
+  try {
+    const r = await fetch('api/info/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind }) });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'server error ' + r.status);
+    stopLive(); overlayOn = false;
+    showServerInfo(kind);
+    toast(`${INFO_TITLES[kind]} is on the Pixoo. The home server updates it every minute.`);
+  } catch (e) { toast('Could not start on the home server: ' + e.message, 'err'); }
+}
+function showServerInfo(kind) {
+  serverInfoKind = kind;
+  $('liveBar').hidden = !kind;
+  if (kind) $('liveText').textContent = `${INFO_TITLES[kind]} is on the Pixoo, kept up to date by the home server`;
+  if (stageOwner === 'info' && kind === infoPick) setStage(INFO_TITLES[kind], 'Live from the home server');
+}
 function stopLive() {
   if (liveTimer) clearTimeout(liveTimer);
-  liveTimer = null; liveKind = null; $('liveBar').hidden = true;
+  liveTimer = null; liveKind = null; serverInfoKind = null; $('liveBar').hidden = true;
 }
 $$('[data-display]').forEach(b => b.onclick = () => previewInfo(b.dataset.display));
-$('stopLive').onclick = () => { stopLive(); toast('Stopped updating the Pixoo.'); };
+$('stopLive').onclick = async () => {
+  if (serverInfoKind) { await fetch('api/info/stop', { method: 'POST', body: '{}' }).catch(() => {}); showServerInfo(null); }
+  stopLive(); toast('Stopped updating the Pixoo.');
+};
+// find out once whether the home server is there, and what it's already showing
+hasServer().then(async ok => {
+  homeServer = ok;
+  if (!ok) return;
+  $('liveFaceField').hidden = true;
+  if (stageOwner === 'character') renderCharacter(currentChar);
+  try {
+    const st = await (await fetch('api/live/status')).json();
+    if (st.show === 'info') { infoPick = st.info.kind; showServerInfo(st.info.kind); if (route === 'info') previewInfo(infoPick); }
+  } catch {}
+});
 // ---------- weather location (Settings) ----------
 // Browsers only share your location with https pages, and the home server is plain http, so
 // "Use my location" only appears where it can work. The town search works everywhere.

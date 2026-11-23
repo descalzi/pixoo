@@ -18,6 +18,8 @@ Options: `python3 server.py --pixoo 192.168.4.192 --port 8080`. If the port is t
 
 ## What's in the page
 
+**Always live with the home server.** When the page is opened from `server.py`, pressing Send on an Info display or a character hands it to the server, which keeps it current on the Pixoo by itself (page closed, after restarts): info screens are redrawn every minute (`live_info.py`, a Python port of the page's drawing code), characters run their scene schedules with the time and temperature drawn into the picture (`tilly_player.py`). One thing plays at a time; sending an effect, a drawing or a game takes over. If the Pixoo can download GIFs from the server (tried once, remembered in `data/device.json`), whole animations go over in one request. Without the server, the page falls back to the Pixoo's own time overlay, which it draws on a solid strip.
+
 **Weather location** lives in Settings: search for your town (Open-Meteo geocoding) or type coordinates. It's saved on the home server (`data/config.json`, `GET/POST /api/config`) so every device shares it. Browsers only allow "Use my location" on https pages, so that button only shows where it can work.
 
 Sections: Effects, Characters, Draw, Info, Flights, Play and Settings (Pixoo address, connection method, theme). The connection status sits in the top bar.

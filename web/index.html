@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Rethink+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="css/styles.css?v=20261123">
+<link rel="stylesheet" href="css/styles.css?v=20261123b">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' rx='1.5' fill='%2315122B'/%3E%3Crect x='1' y='1' width='3' height='3' fill='%23FF8FC7'/%3E%3Crect x='4' y='1' width='3' height='3' fill='%237CF0C5'/%3E%3Crect x='1' y='4' width='3' height='3' fill='%23FFD36B'/%3E%3Crect x='4' y='4' width='3' height='3' fill='%238B7BFF'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -123,15 +123,12 @@
         <small>The Pixoo draws the time and temperature itself and keeps them current, so nothing needs to stay open. Temperature follows the weather location in Settings, or the city set in the Divoom app.</small>
       </div>
       <fieldset class="group" id="livingTilly" hidden>
-        <legend>Keep them going on the home server</legend>
+        <legend>Live on the Pixoo</legend>
         <p class="hint" id="tillyHint"></p>
-        <div class="tilly-actions">
-          <button class="btn btn-secondary" id="tillyStart" type="button"><svg class="icon" aria-hidden="true"><use href="#i-start"/></svg><span>Start on home server</span></button>
-          <button class="btn btn-ghost" id="tillyStop" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
-        </div>
         <div class="live-bar" id="tillyBar" hidden>
           <span class="live-dot" aria-hidden="true"></span>
           <span id="tillyText" role="status">Playing</span>
+          <button class="btn btn-ghost" id="tillyStop" type="button"><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
         </div>
         <div class="progress" id="tillyProgress" role="progressbar" aria-label="Preparing Tilly's scenes" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" hidden><span></span></div>
       </fieldset>
@@ -352,10 +349,10 @@
 
 <div class="toast-region" id="toasts" aria-live="polite"></div>
 
-<script src="js/pixelart.js?v=20261123"></script>
-<script src="js/characters.js?v=20261123"></script>
-<script src="js/tilly.js?v=20261123"></script>
-<script src="js/games.js?v=20261123"></script>
-<script src="js/app.js?v=20261123"></script>
+<script src="js/pixelart.js?v=20261123b"></script>
+<script src="js/characters.js?v=20261123b"></script>
+<script src="js/tilly.js?v=20261123b"></script>
+<script src="js/games.js?v=20261123b"></script>
+<script src="js/app.js?v=20261123b"></script>
 </body>
 </html>

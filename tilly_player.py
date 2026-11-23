@@ -214,8 +214,10 @@ class TillyPlayer:
 
     # -- persistence
     def _load(self):
+        self.pack = {}
         try:
             self._set_scenes(json.loads(self.scenes_file.read_text()))
+            self.pack = json.loads((self.dir / "tilly_pack.json").read_text())
         except (OSError, ValueError, KeyError, TypeError):
             pass
         try:
@@ -240,9 +242,11 @@ class TillyPlayer:
             raise ValueError("no scenes")
         self.scenes = scenes
 
-    def upload(self, pack):
+    def upload(self, pack, meta=None):
         self._set_scenes(pack)
         self.scenes_file.write_text(json.dumps(pack))
+        self.pack = meta or {}
+        (self.dir / "tilly_pack.json").write_text(json.dumps(self.pack))
         return len(self.scenes)
 
     # -- control
@@ -290,7 +294,7 @@ class TillyPlayer:
 
     def status(self):
         return {
-            "running": self.running, "scenes": len(self.scenes), "mood": self.mood,
+            "running": self.running, "scenes": len(self.scenes), "pack": self.pack, "mood": self.mood,
             "character": self.config.get("character", "Tilly Tock"),
             "scene": self.now_playing and self.now_playing[0], "sky": self.now_playing and self.now_playing[1],
             "weather": self.weather, "weather_error": self.weather_error, "error": self.error, "config": self.config,
@@ -299,7 +303,8 @@ class TillyPlayer:
 
     @property
     def slow(self):
-        return bool(self.pixoo.frame_ms and self.pixoo.frame_ms > SLOW_MS)
+        # a Pixoo that downloads GIFs gets a whole scene in one request, so it's never slow
+        return self.pixoo.gif_ok is not True and bool(self.pixoo.frame_ms and self.pixoo.frame_ms > SLOW_MS)
 
     # -- the loop
     def _refresh_weather(self):
@@ -328,12 +333,9 @@ class TillyPlayer:
         if self.overlay_on and not slow:
             send({"Command": "Draw/ClearHttpText"})
             self.overlay_on = False
-        send({"Command": "Draw/ResetHttpGifId"})
-        for i, f in enumerate(frames):
-            if self._stop.is_set():
-                return sc
-            send({"Command": "Draw/SendHttpGif", "PicNum": len(frames), "PicWidth": S, "PicOffset": i,
-                  "PicID": 1, "PicSpeed": speed, "PicData": f if slow else stamp_band(f, hhmm, temp)})
+        frames = frames if slow else [stamp_band(f, hhmm, temp) for f in frames]
+        if not self.pixoo.play(frames, speed, stop=self._stop):
+            return sc
         if slow:  # let the device keep the time and temperature current
             if self.config.get("lat"):
                 send({"Command": "Sys/LogAndLat", "Latitude": self.config["lat"], "Longitude": self.config["lon"]})
@@ -356,7 +358,7 @@ class TillyPlayer:
                 name, sky, seconds = plan[step % len(plan)]
                 # show the first frame straight away (one quick request) so a change of scene
                 # never lingers on the old one while the full animation uploads
-                if self.now_playing != (name, sky):
+                if self.now_playing != (name, sky) and self.pixoo.gif_ok is not True:
                     self._push(name, sky, first_frame_only=True)
                 sc = self._push(name, sky)
                 self.error = None
