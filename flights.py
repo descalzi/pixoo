@@ -537,6 +537,7 @@ class FlightTracker:
             c["radius"] = max(1, min(100, int(msg["radius"])))
         if "auto" in msg:
             c["auto"] = bool(msg["auto"])
+            self.page_at = 0.0  # ticking the box means "now", even right after a page send
         if "auto_nm" in msg:
             c["auto_nm"] = max(.5, min(50, float(msg["auto_nm"])))
         if "auto_ft" in msg:
@@ -583,8 +584,35 @@ class FlightTracker:
                 "origin": _airport(r.get("origin")), "destination": _airport(r.get("destination")),
             } if r else None,
             "count": self.count, "feed": self.feed, "error": self.error, "updated": self.updated,
-            "frame": self.frame,
+            "frame": self.frame, "auto_note": self.auto_note(),
         }
+
+    def auto_note(self):
+        """Why automatic takeover is or isn't showing the card right now, in words for the page."""
+        c, p = self.config, self.plane
+        if not c["auto"]:
+            return None
+        if self.takeover:
+            return "Showing on the Pixoo now, because this plane is close."
+        if c["showing"]:
+            return "The card is already on the Pixoo, so there's nothing to take over."
+        if not self.home():
+            return "Waiting for a location in Settings."
+        left = PAGE_PAUSE_S - (time.time() - self.page_at)
+        if left > 0:
+            return (f"Paused for {int(left) // 60}:{int(left) % 60:02d} more, because something was just sent "
+                    "from the page. Untick and tick the box to resume now.")
+        if self.error:
+            return "Waiting for flight data."
+        if not p:
+            return "Watching. No plane in range right now."
+        if p["dist"] > c["auto_nm"]:
+            return f"Watching. The closest plane is {p['dist']} nm away, and your limit is {c['auto_nm']:g} nm."
+        if p["alt"] is None:
+            return "Watching. The closest plane isn't reporting its altitude."
+        if p["alt"] > c["auto_ft"]:
+            return f"Watching. The closest plane is at {p['alt']:,} ft, and your limit is {c['auto_ft']:,} ft."
+        return "This plane is within your limits. It goes on the Pixoo at the next check, within 10 seconds."
 
     def home(self):
         try:

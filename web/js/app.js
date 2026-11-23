@@ -624,6 +624,7 @@ function showFlights(st) {
   $('flightsNote').textContent = st.error ? `Can't get flight data right now (${st.error}). Trying again every 10 seconds.`
     : !home ? '' : !when ? 'Looking for planes…'
     : `${st.count} plane${st.count === 1 ? '' : 's'} within ${c.radius} nm${p ? '' : ', none in the air right now'}. From ${st.feed}, updated ${when}.`;
+  $('flightsAutoNote').hidden = !st.auto_note; $('flightsAutoNote').textContent = st.auto_note || '';
   const onPixoo = st.showing || st.takeover;
   $('flightsBar').hidden = !onPixoo;
   $('flightsText').textContent = st.takeover ? 'On the Pixoo while this plane is close' : 'On the Pixoo, updating every 10 seconds';
