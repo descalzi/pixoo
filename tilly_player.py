@@ -317,6 +317,13 @@ class TillyPlayer:
         self._thread.start()
         self._save_state(True)
 
+    def replay(self):
+        """Start the current show again (in the background), e.g. after the way animations are
+        sent to the Pixoo changed."""
+        if self.running:
+            config = dict(self.config)
+            threading.Thread(target=lambda: self.start(config), daemon=True).start()
+
     def set_location(self, cfg):
         """The weather location changed in the page's Settings: use it from now on."""
         if cfg.get("lat") and cfg.get("lon"):
@@ -361,7 +368,7 @@ class TillyPlayer:
     @property
     def slow(self):
         # a Pixoo that downloads GIFs gets a whole scene in one request, so it's never slow
-        return self.pixoo.gif_ok is not True and bool(self.pixoo.frame_ms and self.pixoo.frame_ms > SLOW_MS)
+        return not self.pixoo.gif_live and bool(self.pixoo.frame_ms and self.pixoo.frame_ms > SLOW_MS)
 
     # -- the loop
     def _refresh_weather(self):
@@ -416,7 +423,7 @@ class TillyPlayer:
                 name, sky, seconds = plan[step % len(plan)]
                 # show the first frame straight away (one quick request) so a change of scene
                 # never lingers on the old one while the full animation uploads
-                if self.now_playing != (name, sky) and self.pixoo.gif_ok is not True:
+                if self.now_playing != (name, sky) and not self.pixoo.gif_live:
                     self._push(name, sky, first_frame_only=True)
                 sc = self._push(name, sky)
                 self.error = None

@@ -36,6 +36,14 @@ class Pixoo:
         self.frame_ms = None  # how long the device takes to accept one animation frame (moving average)
         self.gifs = None      # GifHost, once the web server is up
         self.gif_ok = None    # does this Pixoo download GIFs from us? None until tried
+        # Off unless chosen in Settings: some Pixoos download the GIF but can't open it and show a
+        # heart instead, and the server can't see that, so frame by frame is the safe default.
+        self.use_gif = False
+
+    @property
+    def gif_live(self):
+        """True when animations go as one GIF, so each one is a single quick request."""
+        return self.use_gif and self.gif_ok is True
 
     def _post(self, url, body, timeout=5):
         req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
@@ -79,7 +87,7 @@ class Pixoo:
     def play(self, frames, speed, stop=None):
         """Show an animation (base64 RGB frames). Uses one GIF the Pixoo downloads when this unit
         supports that (tried once, then remembered), otherwise one request per frame."""
-        if self.gifs and self.gif_ok is not False and len(frames) > 1:
+        if self.gifs and self.use_gif and self.gif_ok is not False and len(frames) > 1:
             if self.gifs.play(self, frames, speed):
                 return True
         send = lambda body: self.send(json.dumps(body).encode())
@@ -248,6 +256,11 @@ class Handler(SimpleHTTPRequestHandler):
             for k in ("lat", "lon", "place"):
                 if k in msg:
                     cfg[k] = str(msg[k])[:120]
+            if "gif_link" in msg and bool(msg["gif_link"]) != self.pixoo.use_gif:
+                cfg["gif_link"] = self.pixoo.use_gif = bool(msg["gif_link"])
+                if self.pixoo.use_gif:
+                    self.gif_host.remember(self.pixoo, None)  # try again: the Pixoo may fetch it now
+                self.tilly.replay()  # show the character again the new way
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
             self.config_file.write_text(json.dumps(cfg))
             self.tilly.set_location(cfg)
@@ -379,6 +392,8 @@ def main():
         Handler.pixoo.gif_ok = json.loads((here / "data" / "device.json").read_text()).get("gif_ok")
     except (OSError, ValueError):
         pass
+    Handler.pixoo.use_gif = bool(Handler._config(Handler).get("gif_link"))
+    print("Animations go to the Pixoo " + ("as one GIF it downloads" if Handler.pixoo.use_gif else "frame by frame"))
     Handler.tilly = TillyPlayer(Handler.pixoo, here / "data")  # resumes a character if one was on
     Handler.info = InfoPlayer(Handler.pixoo, here / "data", location=lambda: Handler._config(Handler))
     Handler.shows = Shows(Handler.tilly, Handler.info)

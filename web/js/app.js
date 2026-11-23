@@ -123,8 +123,17 @@ function lightenFrames(list, speed, { lossless = false } = {}) {
   return [list, speed];
 }
 $('sendMethod').value = store.get('sendMethod', 'frames');
-$('sendMethod').onchange = () => store.set('sendMethod', $('sendMethod').value);
-hasServer().then(ok => { $('sendMethodField').hidden = !ok; });
+// the home server keeps the choice too, for the characters and screens it plays by itself
+$('sendMethod').onchange = () => {
+  store.set('sendMethod', $('sendMethod').value);
+  fetch('api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gif_link: $('sendMethod').value === 'gif' }) }).catch(() => {});
+};
+hasServer().then(async ok => {
+  $('sendMethodField').hidden = !ok;
+  if (!ok) return;
+  try { $('sendMethod').value = (await (await fetch('api/config')).json()).gif_link ? 'gif' : 'frames'; store.set('sendMethod', $('sendMethod').value); } catch {}
+});
 // Experimental: the home server turns the frames into a GIF and the Pixoo downloads it.
 // Returns true if the Pixoo fetched it, false to fall back to frame by frame.
 async function sendAsGif(list, speed) {

@@ -54,7 +54,7 @@ that, so use the server there.
 ## Pixoo API notes
 
 - **Upload speed.** The device takes one frame per request, and some units need up to a second per frame, so a 40-frame animation can take 40 s. That is the device, not the network. The page measures it (Settings, *Animation uploads*), sends repeated frames only once (playing them slower, so nothing changes visually), and in *Automatic* mode sends at most 20 frames when the device is slower than 0.4 s per frame. Living Tilly does the same, and on a slow device it lets the Pixoo draw the time and temperature itself instead of re-uploading every minute. `/api/health` reports the measured `frame_ms`.
-- **GIF link (experimental).** With Settings → *How to send animations* → *As one GIF*, the page posts all frames to `POST /api/gif`; the server encodes a GIF (`gifenc.py`, stdlib), serves it at `/gif/animN.gif`, and sends `Device/PlayTFGif` with `FileType: 2` and that link. The server waits up to 8 s to see the Pixoo download the file; if it doesn't, the page falls back to frame by frame.
+- **GIF link (experimental).** With Settings → *How to send animations* → *As one GIF*, the page posts all frames to `POST /api/gif`; the server encodes a GIF (`gifenc.py`, stdlib), serves it at `/gif/animN.gif`, and sends `Device/PlayTFGif` with `FileType: 2` and that link. The server waits up to 8 s to see the Pixoo download the file; if it doesn't, the page falls back to frame by frame. The choice is saved on the server (`gif_link` in `data/config.json`) and also covers the characters and screens the server plays by itself. It is off by default: some Pixoos download the GIF but can't open it and show a heart icon instead, which the server can't detect.
 
 | Firmware | Endpoint | Reply |
 |---|---|---|
