@@ -18,11 +18,14 @@ Options: `python3 server.py --pixoo 192.168.4.192 --port 8080`. If the port is t
 
 ## What's in the page
 
+**Weather location** lives in Settings: search for your town (Open-Meteo geocoding) or type coordinates. It's saved on the home server (`data/config.json`, `GET/POST /api/config`) so every device shares it. Browsers only allow "Use my location" on https pages, so that button only shows where it can work.
+
 Sections: Effects, Characters, Draw, Info, Play and Settings (Pixoo address, connection method, theme). The connection status sits in the top bar.
 
 - **Effects**: plasma, aurora, fire, rainbow tunnel, starfield, matrix rain, bouncing heart (up to 40 frames, adjustable speed).
-- **Characters**: Tilly Tock (an alarm-clock character who waves and winks) and a cheeky Santa whose trousers fall down. Tilly has a *live face* mode: the Pixoo itself draws the real time and temperature above her and keeps them current, so nothing has to stay running.
-  - **Living Tilly** (needs the home server): press *Start on home server* and the server plays her scenes all day. She idles, dances, wanders off ("back soon") and comes back; yawns in the evening and sleeps from 23:00 to 07:00; holds an umbrella when it rains; wears a scarf and shivers at 5 °C or below or in snow; puts on sunglasses at 27 °C or above. The time and temperature are drawn above her in the 3D font and refreshed every minute. Weather comes from the location in Info. The page renders the scenes once and uploads them (kept in `data/`); the server resumes Tilly after a restart, and stops her when you send something else from the page.
+- **Characters**: Tilly Tock (an alarm-clock character who waves and winks) and a cheeky Santa whose trousers fall down, who also laughs and juggles presents. Both have a *live face* mode: the Pixoo itself draws the real time and temperature above her and keeps them current, so nothing has to stay running.
+  - **Cheeky Santa on the home server** gets a new routine every half hour (trousers, belly laugh, juggling), with the time and temperature above him.
+  - **Living Tilly** (needs the home server): press *Start on home server* and the server plays her scenes all day. She idles, dances, wanders off ("back soon") and comes back; yawns in the evening and sleeps from 23:00 to 07:00; holds an umbrella when it rains; wears a scarf and shivers at 5 °C or below or in snow; puts on sunglasses at 27 °C or above. The time and temperature are drawn above her in the 3D font and refreshed every minute. Weather comes from the location in Settings. The page renders the scenes once and uploads them (kept in `data/`); the server resumes Tilly after a restart, and stops her when you send something else from the page.
 - **Draw**: a 64×64 pixel editor with palette, fill, eraser and multiple frames.
 - **Info displays**: a clock, a clock with weather, a week forecast (seven rows: day, icon, low, range bar, high), or today in focus with the next six days along the bottom, all from [Open-Meteo](https://open-meteo.com) (free, no key). Updates every minute while the page is open.
 - **Play**: three arcade games with the shaded pixel look: Snake, Rock Patrol (an asteroid-style shooter) and Lantern Maze (a maze chase). Play with the arrow keys and Space, by swiping, or with the on-screen pad. Each game runs in step with the Pixoo, so no move is dropped however few frames a second it manages.
@@ -33,7 +36,7 @@ that, so use the server there.
 ### Living Tilly API (server.py)
 
 - `POST /api/tilly/scenes` `{"scenes": [{name, sky, speed, loop, frames: [base64 RGB]}]}` stores the rendered scenes.
-- `POST /api/tilly/start` `{"lat", "lon"}` starts the player, `POST /api/tilly/stop` stops it, `GET /api/tilly/status` reports mood, scene, weather and errors.
+- `POST /api/tilly/start` `{"lat", "lon", "character"}` starts the player for Tilly Tock or Cheeky Santa (lat/lon default to the Settings location), `POST /api/tilly/stop` stops it, `GET /api/tilly/status` reports mood, scene, weather and errors.
 - Scene choice lives in `mood_for()` in `tilly_player.py`; the drawings live in `web/js/tilly.js`.
 
 ## Pixoo API notes

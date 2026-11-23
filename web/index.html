@@ -118,11 +118,11 @@
       <p id="charAbout"></p>
       <div class="field" id="liveFaceField">
         <label class="check"><input type="checkbox" id="liveFace" checked> Live time and temperature</label>
-        <small>The Pixoo draws the time and temperature itself and keeps them current, so nothing needs to stay open. Temperature follows the weather location from the Info section, or the city set in the Divoom app.</small>
+        <small>The Pixoo draws the time and temperature itself and keeps them current, so nothing needs to stay open. Temperature follows the weather location in Settings, or the city set in the Divoom app.</small>
       </div>
       <fieldset class="group" id="livingTilly" hidden>
-        <legend>Living Tilly</legend>
-        <p class="hint" id="tillyHint">Your home server keeps Tilly busy all day. She dances, wanders off and comes back, gets sleepy at night and reacts to the weather from the Info section.</p>
+        <legend>Keep them going on the home server</legend>
+        <p class="hint" id="tillyHint"></p>
         <div class="tilly-actions">
           <button class="btn btn-secondary" id="tillyStart" type="button"><svg class="icon" aria-hidden="true"><use href="#i-start"/></svg><span>Start on home server</span></button>
           <button class="btn btn-ghost" id="tillyStop" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-stop"/></svg>Stop</button>
@@ -187,21 +187,7 @@
           <strong>Today and the week</strong><span>Big time and today's weather, with the next six days along the bottom.</span>
         </button>
       </div>
-      <fieldset class="group">
-        <legend>Weather location</legend>
-        <div class="row">
-          <div class="field">
-            <label for="lat">Latitude</label>
-            <input id="lat" inputmode="decimal" autocomplete="off" placeholder="e.g. 40.42">
-          </div>
-          <div class="field">
-            <label for="lon">Longitude</label>
-            <input id="lon" inputmode="decimal" autocomplete="off" placeholder="e.g. -3.70">
-          </div>
-        </div>
-        <button class="btn btn-secondary" id="locate" type="button"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>Use my location</button>
-        <small class="hint">Weather comes from Open-Meteo, free and without an account.</small>
-      </fieldset>
+      <p class="hint" id="infoPlace"></p>
       <div class="live-bar" id="liveBar" hidden>
         <span class="live-dot" aria-hidden="true"></span>
         <span id="liveText">Live</span>
@@ -258,6 +244,34 @@
           <button class="btn btn-primary" id="test" type="button"><svg class="icon" aria-hidden="true"><use href="#i-wifi"/></svg><span>Test connection</span></button>
         </div>
         <p class="result" id="testResult" role="status"></p>
+      </fieldset>
+      <fieldset class="group">
+        <legend>Weather location</legend>
+        <p class="hint">Used by the weather displays and the characters. Saved on the home server, so your phone and computer share it.</p>
+        <form class="field" id="placeForm">
+          <label for="place">Town or city</label>
+          <div class="field-inline-2">
+            <input id="place" autocomplete="off" placeholder="e.g. London" aria-describedby="placeHelp">
+            <button class="btn btn-secondary" id="findPlace" type="submit"><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>Find</button>
+          </div>
+          <small id="placeHelp" role="status"></small>
+        </form>
+        <div class="choice-list" id="placeResults" role="radiogroup" aria-label="Matching places" hidden></div>
+        <details class="more">
+          <summary>Enter coordinates instead</summary>
+          <div class="row">
+            <div class="field">
+              <label for="lat">Latitude</label>
+              <input id="lat" inputmode="decimal" autocomplete="off" placeholder="e.g. 40.42">
+            </div>
+            <div class="field">
+              <label for="lon">Longitude</label>
+              <input id="lon" inputmode="decimal" autocomplete="off" placeholder="e.g. -3.70">
+            </div>
+          </div>
+          <button class="btn btn-secondary" id="locate" type="button" hidden><svg class="icon" aria-hidden="true"><use href="#i-pin"/></svg>Use my location</button>
+        </details>
+        <small class="hint">Weather and place search come from Open-Meteo, free and without an account.</small>
       </fieldset>
       <fieldset class="group">
         <legend>Animation uploads</legend>

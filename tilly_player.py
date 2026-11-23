@@ -164,9 +164,16 @@ def fetch_weather(lat, lon):
 
 
 # ---- choosing what Tilly does -----------------------------------------------------------
-def mood_for(now, weather):
+SANTA = ["santa_trousers", "santa_hohoho", "santa_juggle"]
+
+
+def mood_for(now, weather, character="Tilly Tock"):
     """The plan for this moment: a list of (scene, sky, seconds) steps to cycle through.
     seconds=None means play the scene once (walking off or back on)."""
+    if character == "Cheeky Santa":
+        # a different routine every half hour, so he's not always doing the same thing
+        slot = (now.hour * 60 + now.minute) // 30
+        return f"santa{slot}", [(SANTA[slot % len(SANTA)], "snow", 1800)]
     h = now.hour + now.minute / 60
     night = h < 7 or h >= 20
     sky = "night" if night else "day"
@@ -247,13 +254,24 @@ class TillyPlayer:
         if not self.scenes:
             raise ValueError("Upload Tilly's scenes first")
         self.stop(save=False)
-        self.config = {k: config[k] for k in ("lat", "lon") if config.get(k) not in (None, "")}
+        self.config = {k: config[k] for k in ("lat", "lon", "character") if config.get(k) not in (None, "")}
         self.weather_at = 0
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, args=(self._stop,), daemon=True)
-        self.mood = mood_for(datetime.now(), self.weather)[0]
+        self.mood = self._mood(datetime.now())[0]
         self._thread.start()
         self._save_state(True)
+
+    def set_location(self, cfg):
+        """The weather location changed in the page's Settings: use it from now on."""
+        if cfg.get("lat") and cfg.get("lon"):
+            self.config.update(lat=cfg["lat"], lon=cfg["lon"])
+            self.weather_at = 0
+            if self.running:
+                self._save_state(True)
+
+    def _mood(self, now):
+        return mood_for(now, self.weather, self.config.get("character", "Tilly Tock"))
 
     def stop(self, save=True):
         self._stop.set()
@@ -273,6 +291,7 @@ class TillyPlayer:
     def status(self):
         return {
             "running": self.running, "scenes": len(self.scenes), "mood": self.mood,
+            "character": self.config.get("character", "Tilly Tock"),
             "scene": self.now_playing and self.now_playing[0], "sky": self.now_playing and self.now_playing[1],
             "weather": self.weather, "weather_error": self.weather_error, "error": self.error, "config": self.config,
             "slow": self.slow, "frame_ms": round(self.pixoo.frame_ms) if self.pixoo.frame_ms else None,
@@ -330,7 +349,7 @@ class TillyPlayer:
         while not stop.is_set():
             try:
                 self._refresh_weather()
-                mood, plan = mood_for(datetime.now(), self.weather)
+                mood, plan = self._mood(datetime.now())
                 if mood != plan_key:
                     plan_key, step = mood, 0
                 self.mood = mood
@@ -360,7 +379,7 @@ class TillyPlayer:
                         break
                     # new minute: redraw the time on the same scene (or switch if the mood changed)
                     self._refresh_weather()
-                    if mood_for(datetime.now(), self.weather)[0] != plan_key:
+                    if self._mood(datetime.now())[0] != plan_key:
                         break
                     if not self.slow:  # in slow mode the device draws the time itself
                         self._push(name, sky)

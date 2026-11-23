@@ -78,6 +78,13 @@ class Handler(SimpleHTTPRequestHandler):
     gifs = {}  # recent animations the Pixoo can download, by file name
     gif_ids = itertools.count(1)
     gif_fetched = set()  # names the Pixoo has actually downloaded
+    config_file: Path = None  # settings shared by every device that opens the page (weather location)
+
+    def _config(self):
+        try:
+            return json.loads(self.config_file.read_text())
+        except (OSError, ValueError):
+            return {}
 
     def do_GET(self):
         if self.path == "/api/health":
@@ -86,6 +93,8 @@ class Handler(SimpleHTTPRequestHandler):
                                     "frame_ms": round(fm) if fm else None})
         if self.path == "/api/tilly/status":
             return self._json(200, self.tilly.status())
+        if self.path == "/api/config":
+            return self._json(200, self._config())
         if self.path.startswith("/gif/") and self.path[5:] in self.gifs:
             data = self.gifs[self.path[5:]]
             self.gif_fetched.add(self.path[5:])
@@ -106,6 +115,15 @@ class Handler(SimpleHTTPRequestHandler):
             return self._tilly(self.path[len("/api/tilly/"):], msg)
         if self.path == "/api/gif":
             return self._gif(msg)
+        if self.path == "/api/config":
+            cfg = self._config()
+            for k in ("lat", "lon", "place"):
+                if k in msg:
+                    cfg[k] = str(msg[k])[:120]
+            self.config_file.parent.mkdir(parents=True, exist_ok=True)
+            self.config_file.write_text(json.dumps(cfg))
+            self.tilly.set_location(cfg)
+            return self._json(200, cfg)
         if self.path != "/api":
             return self._json(404, {"error": "not found"})
         # anything the page draws takes over the screen from Living Tilly
@@ -162,7 +180,8 @@ class Handler(SimpleHTTPRequestHandler):
             if action == "scenes":
                 return self._json(200, {"ok": True, "scenes": self.tilly.upload(msg.get("scenes", []))})
             if action == "start":
-                self.tilly.start(msg)
+                cfg = self._config()  # fall back to the shared weather location from Settings
+                self.tilly.start({"lat": cfg.get("lat"), "lon": cfg.get("lon"), **{k: v for k, v in msg.items() if v}})
             elif action == "stop":
                 self.tilly.stop()
             else:
@@ -208,6 +227,7 @@ def main():
     here = Path(__file__).resolve().parent
     web = here / "web"
     Handler.tilly = TillyPlayer(Handler.pixoo, here / "data")  # resumes Living Tilly if it was on
+    Handler.config_file = here / "data" / "config.json"
     handler = partial(Handler, directory=str(web))
     # If the port is taken (8080 often is), try the next ones instead of failing.
     for port in range(args.port, args.port + 20):

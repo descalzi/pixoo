@@ -26,6 +26,7 @@ $('ip').value = store.get('ip', $('ip').value);
 $('api').value = store.get('api', 'auto');
 $('lat').value = store.get('lat', '');
 $('lon').value = store.get('lon', '');
+$('place').value = store.get('place', '');
 const IP_RE = /^(\d{1,3})(\.\d{1,3}){3}$|^[a-z0-9.-]+$/i;
 $('ip').addEventListener('blur', () => {
   const v = host();
@@ -433,8 +434,8 @@ function renderCharacter(name) {
   setStage(name, live ? 'Live face' : `${ch.frames} frames · ${ch.speed} ms`);
   $('charAbout').textContent = live ? ch.live.about : ch.about;
   $('liveFaceField').hidden = !ch.live;
-  $('livingTilly').hidden = name !== 'Tilly Tock';
-  if (name === 'Tilly Tock') tillyStatus();
+  $('livingTilly').hidden = false;
+  tillyStatus();
   if (live && !weather) getWeather().then(w => { if (w && stageOwner === 'character') renderCharacter(currentChar); }).catch(() => {});
 }
 $('liveFace').checked = store.get('liveFace', '1') === '1';
@@ -459,8 +460,13 @@ for (const name of Object.keys(CHARACTERS)) {
     () => { stopGame(); currentChar = name; store.set('character', name); renderCharacter(name); markEffect(); });
 }
 
-// Living Tilly: the home server plays her scenes on a schedule (server.py + tilly_player.py)
-let tillyPoll = null;
+// Living characters: the home server plays their scenes on a schedule (server.py + tilly_player.py)
+let tillyPoll = null, tillyState = null;
+const LIVING_ABOUT = {
+  'Tilly Tock': 'Your home server keeps Tilly busy all day. She dances, wanders off and comes back, gets sleepy at night and reacts to the weather where you live. The time and temperature sit above her.',
+  'Cheeky Santa': 'Your home server gives Santa a new routine every half hour: losing his trousers, a big belly laugh, or juggling presents. The time and temperature sit above him.',
+};
+const short = name => name.split(' ').pop() === 'Tock' ? 'Tilly' : 'Santa';
 const MOODS = { asleep: 'asleep', sleepy: 'sleepy', rainy: 'sheltering from the rain', cold: 'shivering in the cold',
   hot: 'keeping cool in the heat', playful: 'out and about' };
 async function tillyApi(path, body) {
@@ -469,13 +475,18 @@ async function tillyApi(path, body) {
   if (!r.ok) throw new Error(j.error || 'server error ' + r.status);
   return j;
 }
+const SANTA_MOODS = { santa_trousers: 'losing his trousers', santa_hohoho: 'laughing', santa_juggle: 'juggling presents' };
 function showTilly(st) {
+  tillyState = st;
+  const mine = st.running && st.character === currentChar;
+  $('tillyHint').textContent = LIVING_ABOUT[currentChar];
   $('tillyStop').hidden = !st.running;
-  $('tillyStart').querySelector('span').textContent = st.running ? 'Update scenes' : 'Start on home server';
+  $('tillyStart').querySelector('span').textContent = mine ? 'Update scenes' : st.running ? `Switch to ${short(currentChar)}` : 'Start on home server';
   $('tillyBar').hidden = !st.running;
   if (st.running) {
     const w = st.weather ? ` · ${st.weather.t}°C` : '';
-    $('tillyText').textContent = st.error ? 'Waiting for the Pixoo' : `Playing: ${MOODS[st.mood] || 'starting'}${w}`;
+    const doing = st.character === 'Cheeky Santa' ? SANTA_MOODS[st.scene] || 'starting' : MOODS[st.mood] || 'starting';
+    $('tillyText').textContent = st.error ? 'Waiting for the Pixoo' : `${short(st.character || 'Tilly Tock')} is ${doing}${w}`;
   }
   clearTimeout(tillyPoll);
   if (st.running && route === 'characters') tillyPoll = setTimeout(tillyStatus, 20000);
@@ -483,7 +494,7 @@ function showTilly(st) {
 async function tillyStatus() {
   if (!(await hasServer())) {
     $('tillyStart').disabled = true;
-    $('tillyHint').textContent = 'Living Tilly runs on your home server. Open this page from the server (python3 server.py) to use it.';
+    $('tillyHint').textContent = 'This runs on your home server. Open this page from the server (python3 server.py) to use it.';
     return;
   }
   try { showTilly(await tillyApi('status')); } catch {}
@@ -493,25 +504,26 @@ $('tillyStart').onclick = async () => {
   btn.disabled = true; btn.setAttribute('aria-busy', 'true'); bar.hidden = false;
   try {
     // render every scene here (the server has no canvas), then hand them over
-    const scenes = await tillyScenePack(p => {
+    const who = currentChar;
+    const scenes = await characterScenePack(who, p => {
       const pct = Math.round(p * 100);
       bar.firstElementChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
     });
     await tillyApi('scenes', { scenes });
-    const st = await tillyApi('start', { lat: $('lat').value.trim(), lon: $('lon').value.trim() });
+    const st = await tillyApi('start', { lat: $('lat').value.trim(), lon: $('lon').value.trim(), character: who });
     overlayOn = false; stopLive();
     showTilly(st);
-    toast($('lat').value.trim() ? 'Tilly is living on the Pixoo now' : 'Tilly is on. Set a weather location in Info so she can react to the weather.');
+    toast($('lat').value.trim() || who !== 'Tilly Tock' ? `${short(who)} is on the Pixoo now` : 'Tilly is on. Set a weather location in Settings so she can react to the weather.');
   } catch (e) {
-    toast('Could not start Living Tilly: ' + e.message, 'err');
+    toast('Could not start on the home server: ' + e.message, 'err');
   } finally {
     btn.disabled = false; btn.removeAttribute('aria-busy');
     setTimeout(() => { bar.hidden = true; bar.firstElementChild.style.width = '0'; }, 600);
   }
 };
 $('tillyStop').onclick = async () => {
-  try { showTilly(await tillyApi('stop', {})); toast('Living Tilly stopped'); }
-  catch (e) { toast('Could not stop Living Tilly: ' + e.message, 'err'); }
+  try { showTilly(await tillyApi('stop', {})); toast('Stopped'); }
+  catch (e) { toast('Could not stop: ' + e.message, 'err'); }
 };
 
 $('frames').onchange = () => { if (stageOwner === 'effect') renderEffect(currentEffect); };
@@ -839,19 +851,63 @@ function stopLive() {
 }
 $$('[data-display]').forEach(b => b.onclick = () => previewInfo(b.dataset.display));
 $('stopLive').onclick = () => { stopLive(); toast('Stopped updating the Pixoo.'); };
-$('locate').onclick = () => {
-  if (!navigator.geolocation) return toast('This browser can\'t share your location. Type latitude and longitude instead.', 'err');
-  navigator.geolocation.getCurrentPosition(p => {
-    $('lat').value = p.coords.latitude.toFixed(3); $('lon').value = p.coords.longitude.toFixed(3);
-    store.set('lat', $('lat').value); store.set('lon', $('lon').value); weather = null;
-    toast('Location set.');
-  }, () => toast('Location isn\'t available here. Type latitude and longitude instead.', 'err'));
+// ---------- weather location (Settings) ----------
+// Browsers only share your location with https pages, and the home server is plain http, so
+// "Use my location" only appears where it can work. The town search works everywhere.
+$('locate').hidden = !(window.isSecureContext && navigator.geolocation);
+function showPlace() {
+  const lat = $('lat').value.trim(), lon = $('lon').value.trim(), place = $('place').value.trim();
+  $('infoPlace').innerHTML = '';
+  const where = place || (lat && lon ? `${lat}, ${lon}` : '');
+  $('infoPlace').append(where ? `Weather for ${where}. ` : 'No weather location yet. ', Object.assign(document.createElement('a'), { href: '#settings', textContent: where ? 'Change' : 'Set it in Settings' }));
+  $('placeHelp').textContent = where ? `Using ${where} (${lat}, ${lon}).` : 'Search for your town, then pick it from the list.';
+}
+function setLocation(lat, lon, place, { save = true } = {}) {
+  $('lat').value = lat; $('lon').value = lon; $('place').value = place;
+  store.set('lat', lat); store.set('lon', lon); store.set('place', place);
+  weather = null; forecast = null; showPlace();
+  if (save && served) fetch('api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lat, lon, place }) }).catch(() => {});
+}
+$('placeForm').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('place').value.trim(), list = $('placeResults');
+  if (q.length < 2) { $('placeHelp').textContent = 'Type at least two letters of your town.'; return; }
+  $('placeHelp').textContent = 'Searching';
+  try {
+    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=en&format=json`);
+    const hits = (await r.json()).results || [];
+    list.innerHTML = ''; list.hidden = !hits.length;
+    if (!hits.length) { $('placeHelp').textContent = `No place called "${q}" found. Try another spelling or a bigger town nearby.`; return; }
+    $('placeHelp').textContent = hits.length === 1 ? '' : 'Pick the right one:';
+    for (const h of hits) {
+      const name = [h.name, h.admin1, h.country].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(', ');
+      const b = Object.assign(document.createElement('button'), { type: 'button', className: 'choice' });
+      b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', 'false');
+      b.append(Object.assign(document.createElement('strong'), { textContent: name }),
+        Object.assign(document.createElement('span'), { textContent: `${h.latitude.toFixed(2)}, ${h.longitude.toFixed(2)}` }));
+      b.onclick = () => { setLocation(h.latitude.toFixed(3), h.longitude.toFixed(3), h.name); list.hidden = true; toast(`Weather location set to ${h.name}`); };
+      list.append(b);
+    }
+    if (hits.length === 1) list.firstChild.click();
+  } catch { $('placeHelp').textContent = 'Place search isn\'t reachable right now. Enter coordinates instead.'; }
 };
+$('locate').onclick = () => {
+  navigator.geolocation.getCurrentPosition(p => {
+    setLocation(p.coords.latitude.toFixed(3), p.coords.longitude.toFixed(3), '');
+    toast('Location set.');
+  }, () => toast('Location isn\'t available here. Search for your town instead.', 'err'));
+};
+// the home server keeps the shared location; it wins over what this browser remembered
+if (served) fetch('api/config').then(r => r.ok ? r.json() : null).then(cfg => {
+  if (cfg?.lat && cfg?.lon) setLocation(cfg.lat, cfg.lon, cfg.place || '', { save: false });
+  else if ($('lat').value && $('lon').value) setLocation($('lat').value, $('lon').value, $('place').value); // share what we had
+}).catch(() => {});
+showPlace();
 function checkCoord(el, max) {
   const v = el.value.trim(), n = Number(v);
   const ok = v === '' || (Number.isFinite(n) && Math.abs(n) <= max);
   el.setAttribute('aria-invalid', String(!ok));
-  if (ok) { store.set(el.id, v); weather = null; }
+  if (ok) { store.set(el.id, v); weather = null; forecast = null; if ($('lat').value.trim() && $('lon').value.trim()) setLocation($('lat').value.trim(), $('lon').value.trim(), ''); }
 }
 $('lat').onblur = () => checkCoord($('lat'), 90);
 $('lon').onblur = () => checkCoord($('lon'), 180);

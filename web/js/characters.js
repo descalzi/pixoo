@@ -102,31 +102,49 @@ function drawTilly(t, n, opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Cheeky Santa: waves "HO HO", his belt pops, trousers drop to reveal
-// candy-cane boxers, he blushes "OOPS!" and hauls them back up.
+// Cheeky Santa. Scenes (opts.scene):
+//   trousers  waves "HO HO", his belt pops, trousers drop to candy-cane boxers, "OOPS!", hauls them up
+//   hohoho    a big belly laugh, belly jiggling
+//   juggle    juggles three presents over his head
+// opts.live: leave a 12px band at the top for the time and temperature. Santa is drawn 5px lower
+// (standing on a thinner strip of snow) so the band never covers his hat.
 // ---------------------------------------------------------------------------
-function drawSanta(t, n) {
+const SANTA_SCENES = ['trousers', 'hohoho', 'juggle'];
+function drawSanta(t, n, opts = {}) {
+  const scene = opts.scene || 'trousers', live = !!opts.live, dy = live ? 5 : 0, band = live ? 12 : 0;
   const c = canvas64(), { R, P } = pix(c);
   const a = Math.PI * 2 * t / n;
-  vgrad(c, 0, 58, '#081032', '#24366E');
+  const ground = 58 + dy;
+  vgrad(c, 0, ground, '#081032', '#24366E');
   for (let i = 0; i < 26; i++) {
     const x = (i * 37 + 11) % CS, y = Math.floor((i * 23 + t * CS / n * (1 + (i % 3))) % CS);
     P(x, y, i % 4 ? '#9FB2EA' : '#FFFFFF');
   }
-  vgrad(c, 58, 64, '#F4F8FF', '#B8C6EC'); R(0, 58, CS, 1, '#FFFFFF');
+  vgrad(c, ground, 64, '#F4F8FF', '#B8C6EC'); R(0, ground, CS, 1, '#FFFFFF');
 
-  const phase = t < 12 ? 'wave' : t < 18 ? 'drop' : t < 32 ? 'oops' : 'up';
-  let waist = 44;                                               // 44 = on, 52 = round the ankles
-  if (phase === 'drop') waist = 44 + Math.round((t - 12) / 5 * 8);
-  if (phase === 'oops') waist = 52;
-  if (phase === 'up') waist = Math.max(44, 52 - (t - 32) * 3);
-  waist = Math.min(52, waist);
-  const shake = phase === 'oops' && t % 2 ? 1 : 0;
+  // pose for this frame
+  let phase = scene, waist = 44, arms = 'wave', face = 'smile', jig = 0, shake = 0;
+  if (scene === 'trousers') {
+    phase = t < 12 ? 'wave' : t < 18 ? 'drop' : t < 32 ? 'oops' : 'up';
+    if (phase === 'drop') waist = 44 + Math.round((t - 12) / 5 * 8);
+    if (phase === 'oops') waist = 52;
+    if (phase === 'up') waist = Math.max(44, 52 - (t - 32) * 3);
+    waist = Math.min(52, waist);
+    arms = phase === 'wave' ? 'wave' : phase === 'up' ? 'pull' : 'shock';
+    face = phase === 'drop' || phase === 'oops' ? 'shocked' : 'smile';
+    shake = phase === 'oops' && t % 2 ? 1 : 0;
+  } else if (scene === 'hohoho') {
+    arms = 'belly'; face = t % 20 < 16 ? 'laugh' : 'smile';
+    jig = face === 'laugh' ? (t % 2 ? 1 : 0) : 0;
+  } else if (scene === 'juggle') {
+    arms = 'juggle'; face = 'lookup';
+  }
   const cx = 32 + shake;
-  c.fillStyle = 'rgba(70,90,150,.45)'; c.fillRect(cx - 12, 58, 24, 1);
+  c.fillStyle = 'rgba(70,90,150,.45)'; c.fillRect(cx - 12, ground, 24, 1);
 
   const L = canvas64(), d = pix(L);
   const RED = '#D42A3A', RED_L = '#F0505E', RED_D = '#8E1424';
+  // boots, legs, candy-cane boxers, trousers
   litOval(L, cx - 6, 56, 5, 2, '#3A3A44', { light: .4 }); litOval(L, cx + 6, 56, 5, 2, '#3A3A44', { light: .4 });
   d.R(cx - 8, 44, 6, 11, '#F5C9A8'); d.R(cx + 2, 44, 6, 11, '#F5C9A8');
   d.R(cx - 8, 44, 1, 11, '#FFE2CC'); d.R(cx + 7, 44, 1, 11, '#D9A383');
@@ -144,55 +162,102 @@ function drawSanta(t, n) {
   }
   if (waist <= 45) d.R(cx - 9, 44, 18, 1, RED);
 
-  litOval(L, cx, 37, 13, 9, RED, { light: .35, dark: .45, bands: 4 });
+  // coat: belly jiggles when he laughs
+  litOval(L, cx, 37 - jig, 13 + jig, 9, RED, { light: .35, dark: .45, bands: 4 });
   d.R(cx - 1, 29, 2, 15, '#FFFFFF'); d.P(cx + 1, 30, '#D8DCEB');
   d.R(cx - 13, 42, 26, 2, '#FFFFFF'); d.R(cx - 13, 43, 26, 1, '#D8DCEB');
-  if (phase === 'wave' || phase === 'up') {
-    d.R(cx - 13, 39, 26, 2, '#22222C'); d.R(cx - 13, 39, 26, 1, '#3E3E4C');
-    litOval(L, cx, 39, 3, 2, '#FFC83D', { light: .7 }); d.R(cx - 1, 39, 3, 1, '#22222C');
+  if (waist <= 45) {
+    d.R(cx - 13, 39 - jig, 26, 2, '#22222C'); d.R(cx - 13, 39 - jig, 26, 1, '#3E3E4C');
+    litOval(L, cx, 39 - jig, 3, 2, '#FFC83D', { light: .7 }); d.R(cx - 1, 39 - jig, 3, 1, '#22222C');
   }
+  // arms
   const mitten = (x, y) => litDisc(L, x, y, 2, '#FFFFFF', { dark: .3 });
-  if (phase === 'wave') {
+  const arm = (x0, y0, x1, y1) => { d.line(x0, y0 + 1, x1, y1, RED_D, 3); d.line(x0, y0, x1, y1, RED, 2); };
+  if (arms === 'wave') {
     const wv = Math.round(Math.sin(a * 6) * 2);
-    d.line(cx + 12, 33, cx + 18 + wv, 25, RED_D, 3); d.line(cx + 12, 32, cx + 18 + wv, 24, RED, 2); mitten(cx + 19 + wv, 23);
-    d.line(cx - 12, 33, cx - 15, 41, RED_D, 3); d.line(cx - 13, 33, cx - 16, 40, RED, 2); mitten(cx - 15, 42);
-  } else if (phase === 'drop' || phase === 'oops') {
-    d.line(cx + 12, 33, cx + 11, 25, RED_D, 3); d.line(cx + 12, 32, cx + 11, 25, RED, 2);
-    d.line(cx - 12, 33, cx - 11, 25, RED_D, 3); d.line(cx - 12, 32, cx - 11, 25, RED, 2);
-  } else {
-    d.line(cx + 12, 34, cx + 9, waist, RED_D, 3); d.line(cx + 12, 33, cx + 9, waist, RED, 2); mitten(cx + 9, waist);
-    d.line(cx - 12, 34, cx - 9, waist, RED_D, 3); d.line(cx - 12, 33, cx - 9, waist, RED, 2); mitten(cx - 9, waist);
+    arm(cx + 12, 32, cx + 18 + wv, 24); mitten(cx + 19 + wv, 23);
+    arm(cx - 13, 33, cx - 16, 40); mitten(cx - 15, 42);
+  } else if (arms === 'shock') {
+    arm(cx + 12, 32, cx + 11, 25); arm(cx - 12, 32, cx - 11, 25);
+  } else if (arms === 'pull') {
+    arm(cx + 12, 33, cx + 9, waist); mitten(cx + 9, waist);
+    arm(cx - 12, 33, cx - 9, waist); mitten(cx - 9, waist);
+  } else if (arms === 'belly') {
+    arm(cx + 12, 32, cx + 10, 38 - jig); mitten(cx + 9, 38 - jig);
+    arm(cx - 12, 32, cx - 10, 38 - jig); mitten(cx - 9, 38 - jig);
+  } else if (arms === 'juggle') {
+    // hands bob as they catch and throw, alternating
+    const bl = Math.round(Math.max(0, Math.sin(a * 3)) * 2), br = Math.round(Math.max(0, -Math.sin(a * 3)) * 2);
+    arm(cx - 12, 32, cx - 15, 29 + bl); mitten(cx - 15, 28 + bl);
+    arm(cx + 12, 32, cx + 15, 29 + br); mitten(cx + 15, 28 + br);
   }
+  // head, beard, face
   litOval(L, cx, 22, 7, 6, '#F5C9A8', { light: .3, dark: .2 });
-  litOval(L, cx, 28, 9, 6, '#FFFFFF', { light: .2, dark: .22, bands: 3 });
+  litOval(L, cx, 28 - jig, 9, 6, '#FFFFFF', { light: .2, dark: .22, bands: 3 });
   litOval(L, cx, 25, 8, 2, '#FFFFFF', { dark: .1 });
   d.R(cx - 4, 24, 3, 1, '#FFFFFF'); d.R(cx + 1, 24, 3, 1, '#FFFFFF');
   d.R(cx - 1, 22, 2, 2, '#F09A86'); d.P(cx - 1, 22, '#FFC2B4');
-  const shocked = phase === 'drop' || phase === 'oops';
-  if (shocked) {
+  if (face === 'shocked') {
     d.R(cx - 4, 18, 2, 3, '#1A1A1A'); d.R(cx + 2, 18, 2, 3, '#1A1A1A'); d.P(cx - 4, 18, '#FFFFFF'); d.P(cx + 2, 18, '#FFFFFF');
     d.R(cx - 7, 21, 3, 2, '#FF4F6A'); d.R(cx + 4, 21, 3, 2, '#FF4F6A');
     d.oval(cx, 27, 1, 1, '#7A1E2C');
     mitten(cx + 9, 23); mitten(cx - 9, 23);
+  } else if (face === 'laugh') {
+    [[-5, 19], [-4, 18], [-3, 19], [2, 19], [3, 18], [4, 19]].forEach(([x, y]) => d.P(cx + x, y, '#1A1A1A'));  // ^ ^
+    d.R(cx - 7, 21, 3, 2, '#FF7A8C'); d.R(cx + 4, 21, 3, 2, '#FF7A8C');
+    litOval(L, cx, 28 - jig, 3, 2, '#7A1E2C', { light: .15 }); d.R(cx - 1, 29 - jig, 3, 1, '#FF6B8B');
+  } else if (face === 'lookup') {
+    d.R(cx - 4, 18, 2, 2, '#1A1A1A'); d.R(cx + 2, 18, 2, 2, '#1A1A1A'); d.P(cx - 4, 19, '#FFFFFF'); d.P(cx + 2, 19, '#FFFFFF');
+    d.R(cx - 7, 21, 2, 2, '#FF9AA8'); d.R(cx + 5, 21, 2, 2, '#FF9AA8');
+    d.oval(cx, 27, 1, 0, '#7A1E2C');
   } else {
     d.R(cx - 4, 19, 2, 1, '#1A1A1A'); d.R(cx + 2, 19, 2, 1, '#1A1A1A');
     d.P(cx - 5, 18, '#1A1A1A'); d.P(cx + 4, 18, '#1A1A1A');
     d.R(cx - 7, 21, 2, 2, '#FF9AA8'); d.R(cx + 5, 21, 2, 2, '#FF9AA8');
     d.R(cx - 2, 27, 4, 1, '#7A1E2C');
   }
+  // hat with a floppy pompom
   litOval(L, cx, 12, 7, 3, RED, { light: .35, dark: .4 });
-  const flop = Math.round(Math.sin(a * 2) * 1.5);
+  const flop = Math.round(Math.sin(a * 2) * 1.5) + (jig ? 1 : 0);
   d.line(cx + 4, 10, cx + 10 + flop, 7, RED, 3); d.line(cx + 4, 11, cx + 10 + flop, 8, RED_D, 1);
   d.R(cx - 8, 15, 16, 3, '#FFFFFF'); d.R(cx - 8, 17, 16, 1, '#D8DCEB');
-  litDisc(L, cx + 12 + flop, 8, 2, '#FFFFFF', { dark: .3 });
+  litDisc(L, cx + 12 + flop, 8 + (live ? 1 : 0), 2, '#FFFFFF', { dark: .3 });
 
-  stampWithOutline(c, L, '#0A0716');
-  if (phase === 'drop') { const k = t - 12; litOval(c, cx + 10 + k * 4, 37 - k * 3, 2, 2, '#FFC83D', { light: .7 }); }
+  // juggled presents travel over his head from hand to hand; each one is hidden on the way back
+  if (arms === 'juggle') {
+    const cols = [['#4FB3FF', '#FFD36B'], ['#7CF0C5', '#FF5C7A'], ['#FF9A3D', '#FFFFFF']];
+    for (let k = 0; k < 3; k++) {
+      const u = ((t / n) * 3 + k / 3) % 1;      // 0..1 over the loop, three throws per loop
+      if (u > 2 / 3) continue;
+      const v = u * 1.5, dir = k % 2 ? 1 : -1;
+      const bx = Math.round(cx + dir * (-15 + 30 * v)), by = Math.round(27 - 19 * Math.sin(Math.PI * v));
+      const [box, rib] = cols[k];
+      litOval(L, bx, by, 2, 2, box, { light: .5, bands: 3 }); d.R(bx, by - 2, 1, 5, rib); d.R(bx - 2, by, 5, 1, rib);
+      d.P(bx - 1, by - 3, rib); d.P(bx + 1, by - 3, rib);
+    }
+  }
 
-  const say = phase === 'wave' ? (t % 6 < 3 ? 'HO HO' : 'HO HO HO') : phase === 'oops' ? 'OOPS!' : phase === 'up' ? 'AHEM' : '';
+  // stamp the sprite (5px lower when the band is on)
+  let S2 = L;
+  if (dy) { S2 = canvas64(); S2.drawImage(L.canvas, 0, dy); }
+  if (band) { vgrad(c, 0, band, '#05040F', '#100C26'); R(0, band, CS, 1, '#3A2F75'); }
+  stampWithOutline(c, S2, '#0A0716');
+  if (phase === 'drop') { const k = t - 12; litOval(c, cx + 10 + k * 4, 37 - k * 3 + dy, 2, 2, '#FFC83D', { light: .7 }); }
+
+  // speech: across the top, or beside his head when the top band holds the time
+  const say = phase === 'wave' ? (t % 6 < 3 ? 'HO HO' : 'HO HO HO') : phase === 'oops' ? 'OOPS!' : phase === 'up' ? 'AHEM'
+    : scene === 'hohoho' && face === 'laugh' ? 'HO' : '';
   if (say) {
     const style = phase === 'oops' ? { top: '#FFE0F0', bottom: '#FF5FA8' } : { top: '#FFF2B8', bottom: '#FFB03A' };
-    fancyText(c, say, 32, 1, { big: false, align: 'center', ...style });
+    if (scene === 'hohoho') {
+      const side = Math.floor(t / 4) % 2, k = t % 4;
+      fancyText(c, say, side ? 52 : 4, 26 + dy - k * 2, { big: false, ...style });
+    } else if (!live) fancyText(c, say, 32, 1, { big: false, align: 'center', ...style });
+    else {
+      // short words fit beside his hat
+      const word = say.startsWith('HO') ? 'HO' : say === 'OOPS!' ? 'OOPS' : 'AHEM';
+      fancyText(c, word, word === 'HO' ? 52 : 1, 17, { big: false, ...style });
+    }
   }
   return c.getImageData(0, 0, CS, CS);
 }
@@ -211,5 +276,14 @@ const CHARACTERS = {
       ],
     },
   },
-  'Cheeky Santa': { about: 'Ho ho ho, until his belt gives way.', frames: 40, speed: 160, draw: drawSanta },
+  'Cheeky Santa': {
+    about: 'Ho ho ho, until his belt gives way.', frames: 40, speed: 160, draw: drawSanta,
+    live: {
+      about: 'Live face: the Pixoo shows the real time and temperature above him and keeps them updated on its own.',
+      items: [
+        { TextId: 1, type: 5, x: 2, y: 2, dir: 0, font: 18, TextWidth: 30, Textheight: 6, speed: 100, align: 1, color: '#FFD36B' },
+        { TextId: 2, type: 17, x: 34, y: 2, dir: 0, font: 18, TextWidth: 28, Textheight: 6, speed: 100, align: 3, color: '#8FD3FF' },
+      ],
+    },
+  },
 };

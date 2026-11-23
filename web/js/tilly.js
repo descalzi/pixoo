@@ -259,14 +259,18 @@ function drawTillyScene(name, sky, t, n) {
   return c.getImageData(0, 0, CS, CS);
 }
 
-// Every scene/sky combination the server may play, as raw RGB frames in base64.
-async function tillyScenePack(onProgress) {
+// Every scene/sky combination the server may play for a character, as raw RGB frames in base64.
+async function characterScenePack(character, onProgress) {
   const scenes = [];
   const jobs = [];
-  for (const [name, sc] of Object.entries(TILLY_SCENES)) for (const sky of sc.skies) jobs.push([name, sky, sc]);
+  if (character === 'Cheeky Santa') {
+    for (const scene of SANTA_SCENES) jobs.push(['santa_' + scene, 'snow', { frames: 40, speed: 160, draw: t => drawSanta(t, 40, { scene, live: true }) }]);
+  } else {
+    for (const [name, sc] of Object.entries(TILLY_SCENES)) for (const sky of sc.skies) jobs.push([name, sky, { ...sc, draw: t => drawTillyScene(name, sky, t, sc.frames) }]);
+  }
   for (const [j, [name, sky, sc]] of jobs.entries()) {
     const frames = [];
-    for (let t = 0; t < sc.frames; t++) frames.push(frameToB64(drawTillyScene(name, sky, t, sc.frames)));
+    for (let t = 0; t < sc.frames; t++) frames.push(frameToB64(sc.draw(t)));
     scenes.push({ name, sky, speed: sc.speed, loop: sc.loop !== false, frames });
     onProgress && onProgress((j + 1) / jobs.length);
     await new Promise(r => setTimeout(r));  // let the progress bar paint
