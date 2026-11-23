@@ -859,13 +859,34 @@ $('lon').onblur = () => checkCoord($('lon'), 180);
 // ---------- play: arcade games ----------
 // Live frames use a rolling PicID that resets every 30 pushes, so the device never runs out of IDs.
 let livePic = 1000, liveBusy = false, liveSent = [];
-async function pushLive(img) {
+// Lag meter: a key press is stamped when it happens; the frame that first shows it carries the
+// stamp, and when the Pixoo acknowledges that frame we know the full press-to-panel time.
+let pendingInput = null, lagSamples = [], uploadSamples = [];
+const median = a => a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : null;
+function press(act) { if (pendingInput == null) pendingInput = performance.now(); game.press(act); }
+function resetLag() {
+  pendingInput = null; lagSamples = []; uploadSamples = [];
+  $('lag').textContent = 'Press a key'; $('upload').textContent = '–'; $('lagVerdict').textContent = '';
+}
+function showLag() {
+  const lag = median(lagSamples), up = median(uploadSamples);
+  if (up != null) $('upload').textContent = `${Math.round(up)} ms`;
+  if (lag == null) return;
+  $('lag').textContent = `${Math.round(lag)} ms`;
+  $('lagVerdict').textContent = lag < 250 ? 'Snappy: feels instant.' : lag < 600 ? 'Playable, with a noticeable delay.'
+    : 'Too slow for action games. Turn-based or slow games still work.';
+}
+async function pushLive(img, inputAt = null) {
   if (liveBusy) return;              // drop the frame if the last one is still in flight
   liveBusy = true;
   try {
+    const t0 = performance.now();
     if (livePic > 30) { await pixoo('Draw/ResetHttpGifId'); livePic = 1; }
     await pixoo('Draw/SendHttpGif', { PicNum: 1, PicWidth: S, PicOffset: 0, PicID: livePic++, PicSpeed: 1000, PicData: frameToB64(img) });
     const now = performance.now(); liveSent.push(now); liveSent = liveSent.filter(t => now - t < 3000);
+    uploadSamples = [...uploadSamples, now - t0].slice(-9);
+    if (inputAt != null) lagSamples = [...lagSamples, now - inputAt].slice(-7);
+    showLag();
     $('fps').textContent = `${(liveSent.length / 3).toFixed(1)} per second`;
     setConn('ok', 'Connected');
   } catch { $('fps').textContent = 'Pixoo not reachable'; setConn('err', 'Not connected'); }
@@ -890,11 +911,12 @@ async function runGame(id) {
   const spec = GAMES[currentGame];
   while (id === gameRun && game && !game.over) {
     const t0 = performance.now();
+    const inputAt = pendingInput; pendingInput = null;  // this step is the first to act on the press
     game.step();
     const f = game.frame();
     if (stageOwner === 'play') { frames = [f]; frameIdx = 0; }
     gameStatus();
-    if ($('mirror').checked) await Promise.race([pushLive(f), pause(1500)]);
+    if ($('mirror').checked) await Promise.race([pushLive(f, inputAt), pause(1500)]);
     await pause(Math.max(0, spec.tick - (performance.now() - t0)));
   }
   if (id === gameRun && game?.over) {
@@ -908,7 +930,7 @@ function resumeGame() {
   runGame(++gameRun);
 }
 function startGame() {
-  game = GAMES[currentGame].make(); liveSent = []; $('fps').textContent = 'Measuring';
+  game = GAMES[currentGame].make(); liveSent = []; $('fps').textContent = 'Measuring'; resetLag();
   resumeGame();
 }
 function stopGame() {
@@ -947,23 +969,23 @@ addEventListener('keydown', e => {
   const act = ACTION[e.key];
   if (!act || route !== 'play' || !gameRunning || e.target.closest?.('input, select, textarea')) return;
   e.preventDefault();
-  if (!e.repeat) game.press(act);
+  if (!e.repeat) press(act);
   game.hold(act, true);
 });
 addEventListener('keyup', e => { const act = ACTION[e.key]; if (act && game) game.hold(act, false); });
 $$('[data-dir]').forEach(b => {
   const act = b.dataset.dir;
   const release = () => game?.hold(act, false);
-  b.addEventListener('pointerdown', e => { if (!game || !gameRunning) return; e.preventDefault(); game.press(act); game.hold(act, true); });
+  b.addEventListener('pointerdown', e => { if (!game || !gameRunning) return; e.preventDefault(); press(act); game.hold(act, true); });
   b.addEventListener('pointerup', release); b.addEventListener('pointerleave', release); b.addEventListener('pointercancel', release);
-  b.addEventListener('click', e => { if (e.detail === 0 && game && gameRunning) game.press(act); }); // keyboard activation
+  b.addEventListener('click', e => { if (e.detail === 0 && game && gameRunning) press(act); }); // keyboard activation
 });
 let swipe = null;
 cv.addEventListener('pointerdown', e => { if (route === 'play') swipe = [e.clientX, e.clientY]; });
 cv.addEventListener('pointerup', e => {
   if (!swipe || !game || !gameRunning) return; const dx = e.clientX - swipe[0], dy = e.clientY - swipe[1]; swipe = null;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) > 20) game.press(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
-  else if (GAMES[currentGame].fire) game.press('fire');   // a tap on the stage shoots
+  if (Math.max(Math.abs(dx), Math.abs(dy)) > 20) press(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  else if (GAMES[currentGame].fire) press('fire');   // a tap on the stage shoots
 });
 
 // ---------- start ----------
