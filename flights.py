@@ -700,13 +700,12 @@ class FlightTracker:
     def _push(self):
         if self.frame == self.pushed or not self.frame:
             return
-        send = lambda body: self.pixoo.send(json.dumps(body).encode())
+        frame = self.frame
         if self.pushed is None:  # first card: clear any clock or temperature text the device draws on top
-            send({"Command": "Draw/ClearHttpText"})
-        send({"Command": "Draw/ResetHttpGifId"})
-        send({"Command": "Draw/SendHttpGif", "PicNum": 1, "PicWidth": S, "PicOffset": 0, "PicID": 1,
-              "PicSpeed": 1000, "PicData": self.frame})
-        self.pushed = self.frame
+            self.pixoo.send(b'{"Command":"Draw/ClearHttpText"}')
+        # through play(), so the card never lands in the middle of another animation's upload
+        if self.pixoo.play([frame], 1000):
+            self.pushed = frame
 
     def _close_enough(self):
         p, c = self.plane, self.config

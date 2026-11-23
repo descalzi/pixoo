@@ -26,6 +26,7 @@ from tilly_player import TillyPlayer
 
 # Original firmware: port 80 /post. Newer units ("Pixoo-64 II"): port 9000 /divoom_api.
 ENDPOINTS = (":80/post", ":9000/divoom_api")
+SETTLE_S = 1.5  # pause after an animation upload is cut short, before the device gets anything else
 
 
 class Pixoo:
@@ -39,6 +40,15 @@ class Pixoo:
         # Off unless chosen in Settings: some Pixoos download the GIF but can't open it and show a
         # heart instead, and the server can't see that, so frame by frame is the safe default.
         self.use_gif = False
+        # Only one animation goes to the device at a time. Whoever takes the display calls
+        # interrupt(): an upload in progress stops at the next frame, and anything still waiting
+        # to start is dropped, so two players can never mix their frames on the device.
+        self.play_lock = threading.Lock()
+        self.gen = 0
+        self.cut_at = 0.0  # when an upload was last cut short; the device needs a moment after that
+
+    def interrupt(self):
+        self.gen += 1
 
     @property
     def gif_live(self):
@@ -63,8 +73,10 @@ class Pixoo:
         raise ConnectionError(f"Pixoo not answering at {self.ip} on port 80 or 9000")
 
     def send(self, body):
+        frame = b"Draw/SendHttpGif" in body[:80]
         with self.lock:
-            wait = 0.03 - (time.monotonic() - self.last)
+            # after an animation was cut short, give the Pixoo time to settle before the next one
+            wait = max(0.03 - (time.monotonic() - self.last), SETTLE_S - (time.monotonic() - self.cut_at))
             if wait > 0:
                 time.sleep(wait)
             t0 = time.monotonic()
@@ -74,9 +86,11 @@ class Pixoo:
                 try:
                     reply = self._post(self.url, body)
                 except OSError:
+                    if frame:  # never send a frame twice: it may have arrived. The upload stops here.
+                        raise
                     self.detect()  # device may have rebooted or changed firmware
                     reply = self._post(self.url, body)
-                if b"Draw/SendHttpGif" in body[:80]:
+                if frame:
                     ms = (time.monotonic() - t0) * 1000
                     self.frame_ms = ms if self.frame_ms is None else self.frame_ms * .8 + ms * .2
                 return reply
@@ -87,17 +101,27 @@ class Pixoo:
     def play(self, frames, speed, stop=None):
         """Show an animation (base64 RGB frames). Uses one GIF the Pixoo downloads when this unit
         supports that (tried once, then remembered), otherwise one request per frame."""
-        if self.gifs and self.use_gif and self.gif_ok is not False and len(frames) > 1:
-            if self.gifs.play(self, frames, speed):
-                return True
-        send = lambda body: self.send(json.dumps(body).encode())
-        send({"Command": "Draw/ResetHttpGifId"})
-        for i, f in enumerate(frames):
-            if stop is not None and stop.is_set():
+        gen = self.gen
+        stopped = lambda: gen != self.gen or (stop is not None and stop.is_set())
+        with self.play_lock:
+            if stopped():  # someone else took the display while we waited
                 return False
-            send({"Command": "Draw/SendHttpGif", "PicNum": len(frames), "PicWidth": 64, "PicOffset": i,
-                  "PicID": 1, "PicSpeed": speed, "PicData": f})
-        return True
+            if self.gifs and self.use_gif and self.gif_ok is not False and len(frames) > 1:
+                if self.gifs.play(self, frames, speed):
+                    return True
+            send = lambda body: self.send(json.dumps(body).encode())
+            send({"Command": "Draw/ResetHttpGifId"})
+            for i, f in enumerate(frames):
+                if stopped():
+                    self.cut_at = time.monotonic()
+                    return False
+                try:
+                    send({"Command": "Draw/SendHttpGif", "PicNum": len(frames), "PicWidth": 64, "PicOffset": i,
+                          "PicID": 1, "PicSpeed": speed, "PicData": f})
+                except OSError:
+                    self.cut_at = time.monotonic()
+                    raise
+            return True
 
 
 class GifHost:
@@ -168,6 +192,7 @@ class Shows:
     def stop(self, save=True):
         if self.running:
             self.last = self.config
+            self.tilly.pixoo.interrupt()  # cut its upload short now rather than after the frame queue
         if self.tilly.running:
             self.tilly.stop(save=save)
         if self.info.running:
@@ -270,11 +295,18 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path != "/api":
             return self._json(404, {"error": "not found"})
         # anything the page draws takes over the screen from the server's shows and Flights
-        if str(msg.get("Command", "")).startswith("Draw/"):
-            self.shows.stop()
+        draw = str(msg.get("Command", "")).startswith("Draw/")
+        if draw:
             self.flights.page_drew()
+            self.shows.stop()
         try:
-            reply = self.pixoo.send(body)
+            if draw:  # wait for any server upload to stop, so the page's frames never mix with it
+                if self.pixoo.play_lock.locked():
+                    self.pixoo.interrupt()
+                with self.pixoo.play_lock:
+                    reply = self.pixoo.send(body)
+            else:
+                reply = self.pixoo.send(body)
         except OSError as e:
             return self._json(502, {"error": f"Pixoo unreachable: {e}"})
         self.send_response(200)
