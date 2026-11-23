@@ -13,7 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Rethink+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="css/styles.css?v=20261123e">
+<link rel="stylesheet" href="css/styles.css?v=20261123f">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Crect width='8' height='8' rx='1.5' fill='%2315122B'/%3E%3Crect x='1' y='1' width='3' height='3' fill='%23FF8FC7'/%3E%3Crect x='4' y='1' width='3' height='3' fill='%237CF0C5'/%3E%3Crect x='1' y='4' width='3' height='3' fill='%23FFD36B'/%3E%3Crect x='4' y='4' width='3' height='3' fill='%238B7BFF'/%3E%3C/svg%3E">
 </head>
 <body>
@@ -72,6 +72,16 @@
   </nav>
 
   <main id="main" tabindex="-1">
+    <!-- What the Pixoo is showing right now, on every page -->
+    <div class="now-bar" id="nowBar" role="status" data-state="idle">
+      <span class="now-dot" aria-hidden="true"></span>
+      <div class="now-body">
+        <p class="now-text"><span class="now-label">On the Pixoo:</span> <span id="nowText">Checking</span></p>
+        <p class="now-sub" id="nowSub" hidden></p>
+        <div class="now-progress" id="nowProgress" hidden><span></span></div>
+      </div>
+      <a class="now-chip" id="nowFlights" href="#flights" hidden><svg class="icon icon-sm" aria-hidden="true"><use href="#i-plane"/></svg><span>Flight takeover on</span></a>
+    </div>
     <!-- The stage: what the Pixoo will show. Hidden on the Settings screen. -->
     <section class="stage" id="stage" aria-labelledby="stageTitle">
       <div class="stage-head">
@@ -229,7 +239,7 @@
             <div class="suffix"><input id="flightAutoFt" type="number" inputmode="numeric" min="500" max="60000" step="500" value="10000"><span>ft</span></div>
           </div>
         </div>
-        <small class="hint">When the plane has gone, the Pixoo goes back to your character if one was playing on the home server, otherwise to its own clock. It waits 5 minutes after you send anything from this page.</small>
+        <small class="hint"><strong>Saved straight away. No need to press Send.</strong> When the plane has gone, the Pixoo goes back to your character if one was playing on the home server, otherwise to its own clock. It waits 5 minutes after you send anything from this page.</small>
       </fieldset>
       <small class="hint">Positions from airplanes.live (adsb.lol and adsb.fi as backups), routes from adsbdb.com, logos from pics.avs.io. All free, no account needed.</small>
     </section>
@@ -332,7 +342,7 @@
             <option value="frames">Frame by frame (works on every Pixoo)</option>
             <option value="gif">As one GIF from the home server (experimental, faster)</option>
           </select>
-          <small id="sendMethodHelp">With GIF, the home server makes a GIF file and the Pixoo downloads it in one go, for everything it sends, characters included. If your Pixoo shows a heart instead of the animation, it couldn't open the GIF: switch back to frame by frame.</small>
+          <small id="sendMethodHelp">With GIF, the home server makes a GIF file and the Pixoo downloads it in one go, for everything it sends, characters included. If your Pixoo shows a heart instead of the animation, it couldn't open the GIF: switch back to frame by frame. Saved straight away.</small>
         </div>
         <p class="hint" id="uploadSpeed"></p>
       </fieldset>
@@ -350,11 +360,11 @@
 
 <div class="toast-region" id="toasts" aria-live="polite"></div>
 
-<script src="js/pixelart.js?v=20261123e"></script>
-<script src="js/characters.js?v=20261123e"></script>
-<script src="js/cast.js?v=20261123e"></script>
-<script src="js/tilly.js?v=20261123e"></script>
-<script src="js/games.js?v=20261123e"></script>
-<script src="js/app.js?v=20261123e"></script>
+<script src="js/pixelart.js?v=20261123f"></script>
+<script src="js/characters.js?v=20261123f"></script>
+<script src="js/cast.js?v=20261123f"></script>
+<script src="js/tilly.js?v=20261123f"></script>
+<script src="js/games.js?v=20261123f"></script>
+<script src="js/app.js?v=20261123f"></script>
 </body>
 </html>

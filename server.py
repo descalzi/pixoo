@@ -46,6 +46,16 @@ class Pixoo:
         self.play_lock = threading.Lock()
         self.gen = 0
         self.cut_at = 0.0  # when an upload was last cut short; the device needs a moment after that
+        # for the page's status bar: the animation upload in progress, and the last failure
+        self.upload = None    # {"by": "server" | "page", "done", "total", "at"}
+        self.error, self.error_at = None, 0.0
+
+    def note_upload(self, by, done, total):
+        self.upload = {"by": by, "done": done, "total": total, "at": time.time()}
+        self.error_at = 0.0  # it took a frame, so it is reachable again
+
+    def note_error(self, e):
+        self.error, self.error_at = str(e), time.time()
 
     def interrupt(self):
         self.gen += 1
@@ -118,8 +128,10 @@ class Pixoo:
                 try:
                     send({"Command": "Draw/SendHttpGif", "PicNum": len(frames), "PicWidth": 64, "PicOffset": i,
                           "PicID": 1, "PicSpeed": speed, "PicData": f})
-                except OSError:
+                    self.note_upload("server", i + 1, len(frames))
+                except OSError as e:
                     self.cut_at = time.monotonic()
+                    self.note_error(e)
                     raise
             return True
 
@@ -211,6 +223,7 @@ class Handler(SimpleHTTPRequestHandler):
     shows: Shows = None
     flights: FlightTracker = None
     gif_host: "GifHost" = None  # GIFs the Pixoo can download
+    page_now = None  # what the page last sent: {"what", "at"}
     config_file: Path = None  # settings shared by every device that opens the page (weather location)
 
     def _config(self):
@@ -237,6 +250,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self._json(400, {"error": str(e)})
         if self.path == "/api/config":
             return self._json(200, self._config())
+        if self.path == "/api/now":
+            return self._json(200, self._now())
         if self.path == "/api/flights/status":
             return self._json(200, self.flights.status())
         if self.path.startswith("/gif/") and self.path[5:] in self.gif_host.files:
@@ -276,6 +291,9 @@ class Handler(SimpleHTTPRequestHandler):
         if self.path == "/api/gif":
             self.flights.page_drew()
             return self._gif(msg)
+        if self.path == "/api/now":  # the page names what it just sent, for everyone's status bar
+            Handler.page_now = {"what": str(msg.get("what") or "")[:80] or None, "at": time.time()}
+            return self._json(200, self._now())
         if self.path == "/api/config":
             cfg = self._config()
             for k in ("lat", "lon", "place"):
@@ -299,6 +317,8 @@ class Handler(SimpleHTTPRequestHandler):
         if draw:
             self.flights.page_drew()
             self.shows.stop()
+        if draw and (not self.page_now or time.time() - self.page_now["at"] > 120):
+            Handler.page_now = {"what": None, "at": time.time()}  # something from the page; it may name it
         try:
             if draw:  # wait for any server upload to stop, so the page's frames never mix with it
                 if self.pixoo.play_lock.locked():
@@ -307,13 +327,47 @@ class Handler(SimpleHTTPRequestHandler):
                     reply = self.pixoo.send(body)
             else:
                 reply = self.pixoo.send(body)
+            if msg.get("Command") == "Draw/SendHttpGif":
+                self.pixoo.note_upload("page", int(msg.get("PicOffset", 0)) + 1, int(msg.get("PicNum", 1)))
         except OSError as e:
+            self.pixoo.note_error(e)
             return self._json(502, {"error": f"Pixoo unreachable: {e}"})
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(reply)))
         self.end_headers()
         self.wfile.write(reply)
+
+    def _now(self):
+        """What's on the Pixoo right now, for the status bar on every page."""
+        f, t, i, px = self.flights, self.tilly, self.info, self.pixoo
+        fc = f.config
+        if fc.get("showing") or f.takeover:
+            p = f.plane or {}
+            on = {"kind": "flight", "takeover": bool(f.takeover),
+                  "what": p.get("callsign") or p.get("reg") or None}
+        elif t.running:
+            st = t.status()
+            on = {"kind": "character", "mix": st["character"] == "mix", "what": st["current"] or st["character"],
+                  "scene": st["scene"], "mood": st["mood"]}
+        elif i.running:
+            on = {"kind": "info", "what": i.config.get("kind")}
+        elif self.page_now:
+            on = {"kind": "page", "what": self.page_now["what"], "at": self.page_now["at"]}
+        else:
+            on = {"kind": None}
+        up = px.upload
+        if up and (up["done"] >= up["total"] or time.time() - up["at"] > 6):
+            up = None
+        error = None
+        if time.time() - px.error_at < 90:
+            error = px.error
+        elif t.running and t.error:
+            error = t.error
+        elif i.running and i.error:
+            error = i.error
+        return {"on": on, "upload": up, "error": error,
+                "flights_auto": bool(fc.get("auto")), "auto_nm": fc.get("auto_nm"), "auto_ft": fc.get("auto_ft")}
 
     def _gif(self, msg):
         """Experimental: turn the frames into one GIF file and ask the Pixoo to download and play

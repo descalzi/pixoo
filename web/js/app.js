@@ -184,6 +184,7 @@ async function sendFrames(list, speed, { quiet = false } = {}) {
       const ms = performance.now() - t0; frameMs = frameMs ? frameMs * .8 + ms * .2 : ms;
       const pct = Math.round((i + 1) / list.length * 100);
       bar.firstElementChild.style.width = pct + '%'; bar.setAttribute('aria-valuenow', pct);
+      nowLocal.upload = list.length > 1 && i + 1 < list.length ? { by: 'page', done: i + 1, total: list.length } : null; renderNow();
       if (detected !== 'api') await pause(30); // the device's web server is single-threaded (the home server paces for us)
     }
     setConn('ok', 'Connected');
@@ -649,11 +650,13 @@ $('flightsStop').onclick = async () => {
 };
 
 $('send').onclick = () => {
+  setTimeout(pollNow, 1500); // the status bar catches up with what was just sent
   if (stageOwner === 'info') return homeServer ? startInfoOnServer(infoPick) : startLive(infoPick);
   stopLive(); // whatever is sent now replaces the minute-by-minute info display
   if (stageOwner === 'flights') return sendFlights();
   if (stageOwner === 'character') return sendCharacter();
   const list = stageOwner === 'draw' ? drawFrames : frames;
+  nowSending(stageOwner === 'draw' ? 'your drawing' : $('stageTitle').textContent);
   sendFrames(list, stageOwner === 'play' ? 1000 : stageSpeed());
 };
 
@@ -1133,6 +1136,7 @@ async function runGame(id) {
 }
 function resumeGame() {
   stopLive(); stageOwner = 'play'; gameRunning = true;
+  nowSending(`playing ${currentGame}`);
   setGameButton('Pause', '#i-pause'); $('restartBtn').hidden = false;
   runGame(++gameRun);
 }
@@ -1194,6 +1198,63 @@ cv.addEventListener('pointerup', e => {
   if (Math.max(Math.abs(dx), Math.abs(dy)) > 20) press(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
   else if (GAMES[currentGame].fire) press('fire');   // a tap on the stage shoots
 });
+
+// ---------- now on the Pixoo: a status bar on every page ----------
+// With the home server, it reports what's on for everyone (GET /api/now). Without it, the page only
+// knows what it sent itself.
+const nowLocal = { what: null, upload: null };
+let nowState = null, nowTimer = null;
+function nowSending(what) {
+  nowLocal.what = what; nowLocal.upload = null; renderNow();
+  if (homeServer) fetch('api/now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ what }) })
+    .then(r => r.json()).then(st => { nowState = st; renderNow(); }).catch(() => {});
+}
+const cap = s => s ? s[0].toUpperCase() + s.slice(1) : s;
+function nowDescribe(on) {
+  switch (on.kind) {
+    case 'flight': return on.takeover ? `Flight ${on.what || ''} took over: a plane is flying close and low`.replace('  ', ' ')
+      : `The flight card${on.what ? ` (${on.what})` : ''}, updated by the home server`;
+    case 'character': {
+      const L = LIVING[on.what], doing = L ? L.doing({ scene: on.scene, mood: on.mood }) : 'on';
+      return (on.mix ? 'Characters taking turns. Now ' : '') + `${on.mix ? short(on.what) : on.what} is ${doing}`;
+    }
+    case 'info': return `${INFO_TITLES[on.what] || 'Info display'}, updated every minute by the home server`;
+    case 'page': return on.what ? `${cap(on.what)}, sent from Pixoo Studio` : 'Something sent from Pixoo Studio';
+    default: return 'Nothing from Pixoo Studio. The Pixoo shows its own screens.';
+  }
+}
+function renderNow() {
+  const st = homeServer && nowState ? nowState
+    : { on: nowLocal.what ? { kind: 'page', what: nowLocal.what } : { kind: null }, upload: nowLocal.upload, error: null };
+  const up = st.upload || (nowLocal.upload && nowLocal.upload), bar = $('nowBar');
+  if (!homeServer && !nowLocal.what && !up) { $('nowText').textContent = 'Nothing sent from this page yet'; }
+  else $('nowText').textContent = nowDescribe(st.on);
+  let sub = '';
+  $('nowSub').title = st.error || '';
+  bar.querySelector('.now-label').textContent = st.error ? 'Should be on the Pixoo:' : 'On the Pixoo:';
+  if (st.error) sub = 'Can\'t reach the Pixoo. Check it\'s switched on and on your wifi.';
+  else if (up) sub = up.by === 'server' ? `Loading the next animation: frame ${up.done} of ${up.total}` : `Sending frame ${up.done} of ${up.total}`;
+  $('nowSub').textContent = sub; $('nowSub').hidden = !sub;
+  $('nowProgress').hidden = !up || !!st.error;
+  if (up) $('nowProgress').firstElementChild.style.width = Math.round(up.done / up.total * 100) + '%';
+  bar.dataset.state = st.error ? 'err' : up ? 'busy' : st.on.kind ? 'on' : 'idle';
+  const chip = $('nowFlights');
+  chip.hidden = !st.flights_auto;
+  if (st.flights_auto) chip.title = `Flights takes over the Pixoo when a plane is closer than ${st.auto_nm} nm and lower than ${Number(st.auto_ft).toLocaleString()} ft`;
+}
+async function pollNow() {
+  clearTimeout(nowTimer);
+  if (homeServer && document.visibilityState === 'visible') {
+    try {
+      nowState = await (await fetch('api/now', { signal: AbortSignal.timeout(4000) })).json();
+      if (!sending) setConn(nowState.error ? 'err' : 'ok', nowState.error ? 'Not connected' : 'Connected');
+    } catch {}
+  }
+  renderNow();
+  nowTimer = setTimeout(pollNow, nowState?.upload ? 1000 : 4000);
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') pollNow(); });
+hasServer().then(ok => { if (ok) homeServer = true; pollNow(); });
 
 // ---------- start ----------
 showBright();
