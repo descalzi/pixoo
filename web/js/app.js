@@ -448,6 +448,8 @@ function renderCharacter(name) {
   if (homeServer && name === 'Tilly Tock') {
     const sc = TILLY_SCENES.idle, sky = new Date().getHours() >= 20 || new Date().getHours() < 7 ? 'night' : 'day';
     charFrames = Array.from({ length: sc.frames }, (_, t) => drawTillyScene('idle', sky, t, sc.frames));
+  } else if (homeServer && LIVING[name]) {
+    charFrames = LIVING[name].scenes().flatMap(([, , sc]) => Array.from({ length: sc.frames }, (_, t) => sc.draw(t)));
   } else charFrames = Array.from({ length: ch.frames }, (_, t) => ch.draw(t, ch.frames, { live }));
   frames = !live ? charFrames : homeServer ? charFrames.map(bandPreview) : charFrames.map(f => overlayPreview(f, ch.live.items));
   frameIdx = 0; stageOwner = 'character';

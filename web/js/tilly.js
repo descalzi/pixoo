@@ -279,8 +279,28 @@ const LIVING = {
     doing: st => ({ santa_trousers: 'losing his trousers', santa_hohoho: 'laughing', santa_juggle: 'juggling presents' })[st.scene] || 'on now',
   },
 };
+// The cast in cast.js: three routines each, one per half hour.
+const castLiving = (short, pronoun, prefix, list, draw, speed, about, doing) => ({
+  short, pronoun, about,
+  scenes: () => list.map(scene => [prefix + scene, 'day', { frames: 40, speed, draw: t => draw(t, 40, { scene, live: true }) }]),
+  doing: st => doing[(st.scene || '').slice(prefix.length)] || 'on now',
+});
+Object.assign(LIVING, {
+  'Pip the Cactus': castLiving('Pip', 'him', 'pip_', PIP_SCENES, drawPip, 140,
+    'Your home server gives Pip a new routine every half hour: watering himself, sunbathing in shades, or bursting into bloom. The time and temperature sit above him.',
+    { water: 'watering himself', sunbathe: 'sunbathing', bloom: 'blooming' }),
+  'Bolt the Robot': castLiving('Bolt', 'him', 'bolt_', BOLT_SCENES, drawBolt, 130,
+    'Your home server gives Bolt a new job every half hour: sweeping up, recharging his battery, or a glitchy dance. The time and temperature sit above him.',
+    { sweep: 'sweeping up', recharge: 'recharging', glitch: 'doing a glitch dance' }),
+  'Mochi the Cat': castLiving('Mochi', 'her', 'mochi_', MOCHI_SCENES, drawMochi, 150,
+    'Your home server gives Mochi a new mood every half hour: a big stretch and yawn, chasing a moth, or a nap. The time and temperature sit above her.',
+    { stretch: 'stretching', moth: 'chasing a moth', nap: 'napping' }),
+  'Frosty the Snowman': castLiving('Frosty', 'him', 'frosty_', FROSTY_SCENES, drawFrosty, 140,
+    'Your home server gives Frosty a new routine every half hour: losing his nose, building a mini snowman, or melting and refreezing. The time and temperature sit above him.',
+    { nose: 'looking for his nose', build: 'building a mini snowman', melt: 'melting a little' }),
+});
 // Bump when any scene drawing changes, so the home server gets the new frames.
-const SCENES_VERSION = '2026-11-23b';
+const SCENES_VERSION = '2026-11-23c';
 async function characterScenePack(character, onProgress) {
   const scenes = [];
   const jobs = LIVING[character].scenes();

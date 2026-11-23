@@ -28,6 +28,7 @@ Sections: Effects, Characters, Draw, Info, Flights, Play and Settings (Pixoo add
 - **Characters**: Tilly Tock (an alarm-clock character who waves and winks) and a cheeky Santa whose trousers fall down, who also laughs and juggles presents. Both have a *live face* mode: the Pixoo itself draws the real time and temperature above her and keeps them current, so nothing has to stay running.
   - **Mix characters** (tick it in Characters, then Send): the characters take turns, a different one every half hour, each round in a new random order; Tilly takes the night shift. To add a character, draw it in `characters.js`, add it to `CHARACTERS`, and list its scenes in `LIVING` (`tilly.js`). The server gives it one scene per half hour and includes it in the mix with no Python changes.
   - **Cheeky Santa on the home server** gets a new routine every half hour (trousers, belly laugh, juggling), with the time and temperature above him.
+  - **Pip the Cactus, Bolt the Robot, Mochi the Cat and Frosty the Snowman** (`cast.js`) each have three routines the home server rotates every half hour: Pip waters himself, sunbathes and blooms; Bolt sweeps, recharges and does a glitch dance; Mochi stretches, chases a moth and naps; Frosty loses his nose, builds a mini snowman and melts then refreezes.
   - **Living Tilly** (needs the home server): press *Start on home server* and the server plays her scenes all day. She idles, dances, wanders off ("back soon") and comes back; yawns in the evening and sleeps from 23:00 to 07:00; holds an umbrella when it rains; wears a scarf and shivers at 5 °C or below or in snow; puts on sunglasses at 27 °C or above. The time and temperature are drawn above her in the 3D font and refreshed every minute. Weather comes from the location in Settings. The page renders the scenes once and uploads them (kept in `data/`); the server resumes Tilly after a restart, and stops her when you send something else from the page.
 - **Draw**: a 64×64 pixel editor with palette, fill, eraser and multiple frames.
 - **Info displays**: a clock, a clock with weather, a week forecast (seven rows: day, icon, low, range bar, high), or today in focus with the next six days along the bottom, all from [Open-Meteo](https://open-meteo.com) (free, no key). Updates every minute while the page is open.
@@ -47,7 +48,7 @@ that, so use the server there.
 ### Living Tilly API (server.py)
 
 - `POST /api/tilly/scenes` `{"scenes": [{name, sky, speed, loop, frames: [base64 RGB]}]}` stores the rendered scenes.
-- `POST /api/tilly/start` `{"lat", "lon", "character"}` starts the player for Tilly Tock or Cheeky Santa (lat/lon default to the Settings location), `POST /api/tilly/stop` stops it, `GET /api/tilly/status` reports mood, scene, weather and errors.
+- `POST /api/tilly/start` `{"lat", "lon", "character"}` starts the player for any character in `LIVING` (or `"mix"`) (lat/lon default to the Settings location), `POST /api/tilly/stop` stops it, `GET /api/tilly/status` reports mood, scene, weather and errors.
 - Scene choice lives in `mood_for()` in `tilly_player.py`; the drawings live in `web/js/tilly.js`.
 
 ## Pixoo API notes
