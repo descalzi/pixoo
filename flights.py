@@ -367,6 +367,79 @@ def logo_tile(png, size=17, tile=(244, 242, 255), max_colours=4):
     return grid, colour
 
 
+# ---- hand-drawn 17x17 logos for the airlines Martin sees most (others come from the logo set) ----
+_LOGO_COLOURS = {'R': (235, 34, 38), 'W': (255, 255, 255), 'N': (1, 41, 95), 'O': (255, 102, 0),
+                 'Y': (241, 201, 51), 'D': (7, 53, 144)}
+_BA = """
+RWNNNNWRRRWNNNNWR
+WRWNNNWRRRWNNNWRW
+NWRWNNWRRRWNNWRWN
+NNWRWNWRRRWNWRWNN
+NNNWRWWRRRWWRWNNN
+NNNNWRWRRRWRWNNNN
+WWWWWWWRRRWWWWWWW
+RRRRRRRRRRRRRRRRR
+RRRRRRRRRRRRRRRRR
+RRRRRRRRRRRRRRRRR
+WWWWWWWRRRWWWWWWW
+NNNNWRWRRRWRWNNNN
+NNNWRWWRRRWWRWNNN
+NNWRWNWRRRWNWRWNN
+NWRWNNWRRRWNNWRWN
+WRWNNNWRRRWNNNWRW
+RWNNNNWRRRWNNNNWR"""
+_EASYJET = """
+OOOOOOOOOOOOOOOOO
+OOOOOOOOOOOOOOOOO
+OOOOOOOOOOOOOOOOO
+OOOOOOWWWWWOOOOOO
+OOOOWWWWWWWWWOOOO
+OOOWWWWOOOWWWWOOO
+OOOWWWOOOOOWWWOOO
+OOWWWWOOOOOWWWWOO
+OOWWWWWWWWWWWWWOO
+OOWWWWWWWWWWWWWOO
+OOWWWWOOOOOOOOOOO
+OOOWWWOOOOOOOOOOO
+OOOWWWWOOOOOWWOOO
+OOOOWWWWWWWWWWOOO
+OOOOOOWWWWWWOOOOO
+OOOOOOOOOOOOOOOOO
+OOOOOOOOOOOOOOOOO"""
+_RYANAIR = """
+DDDDDDDDDDDDDDDDD
+DDDDDDDDDDDDDDDDD
+DDYYYDDDDDDDDDDDD
+DYYDYYDDDDDDDDDDD
+DYYYYYYYYDDDDDDDD
+DDYYDDDYYYYYYYYDD
+DDDYYDYDYDYDYYYDD
+DDDYYDYDYDYDYYDDD
+DDDDYYDYDYDYYYDDD
+DDDDYYDYDYDYYDDDD
+DDDDDYYDYDYYDDDDD
+DDDDDYYYDYYYDDDDD
+DDDDDDYYDYYDDDDDD
+DDDDDDYYYYDDDDDDD
+DDDDDDDYYYDDDDDDD
+DDDDDDDDYDDDDDDDD
+DDDDDDDDDDDDDDDDD"""
+# ICAO code -> (drawing, brand colour). Sister airlines flying the same livery share a drawing.
+PIXEL_LOGOS = {
+    **{k: (_BA, (1, 41, 95)) for k in ("BAW", "SHT", "CFE", "EFW")},          # British Airways (union flag tail)
+    **{k: (_EASYJET, (255, 102, 0)) for k in ("EZY", "EJU", "EZS")},          # easyJet
+    **{k: (_RYANAIR, (7, 53, 144)) for k in ("RYR", "RUK", "MAY", "RYS")},    # Ryanair (harp)
+}
+
+
+def pixel_logo(icao):
+    hit = PIXEL_LOGOS.get(icao or "")
+    if not hit:
+        return None
+    rows = hit[0].strip().split("\n")
+    return [[_LOGO_COLOURS[ch] for ch in row] for row in rows], hit[1]
+
+
 # ---- geography ------------------------------------------------------------------------------
 def distance_nm(lat1, lon1, lat2, lon2):
     p1, p2 = math.radians(lat1), math.radians(lat2)
@@ -689,6 +762,8 @@ class FlightTracker:
         icao, iata = (airline or {}).get("icao"), (airline or {}).get("iata")
         if not icao and not iata:
             return None
+        if pixel_logo(icao):
+            return pixel_logo(icao)
         key = icao or iata
         if key in self.logos:
             return self.logos[key]
